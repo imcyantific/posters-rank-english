@@ -11,30 +11,29 @@ try {
   console.log('Font registration error:', e.message);
 }
 
-// Draw larger toptoday-style frosted glass bottom tag
+// Draw authentic toptoday-style frosted glass pill overlay
 function drawTagPill(ctx, text) {
   if (!text) return;
   
   ctx.save();
-  // Bumped up font size from 32px to 38px
-  ctx.font = '38px "BebasNeue"';
+  // Scaled up font for high visibility and readability
+  ctx.font = '44px "BebasNeue"';
   const textMetrics = ctx.measureText(text.toUpperCase());
   
-  const paddingX = 34;
-  const pillWidth = Math.max(textMetrics.width + (paddingX * 2), 210);
-  const pillHeight = 52;
+  const paddingX = 36;
+  const pillWidth = Math.max(textMetrics.width + (paddingX * 2), 240);
+  const pillHeight = 58;
   const x = (600 - pillWidth) / 2;
-  const y = 848; // Anchored closer to the bottom edge
+  const y = 842; // Anchored directly at bottom edge
+  const radius = 10;
 
-  const radius = 12;
+  // 1. Heavy Outer Drop Shadow
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+  ctx.shadowBlur = 20;
+  ctx.shadowOffsetY = 6;
 
-  // 1. Outer Soft Glow / Shadow Layer for Depth
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
-  ctx.shadowBlur = 18;
-  ctx.shadowOffsetY = 4;
-
-  // 2. Base Dark Frosted Layer
-  ctx.fillStyle = 'rgba(12, 12, 14, 0.75)';
+  // 2. Dark Frosted Glass Base
+  ctx.fillStyle = 'rgba(12, 12, 15, 0.82)';
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
   ctx.lineTo(x + pillWidth - radius, y);
@@ -46,15 +45,15 @@ function drawTagPill(ctx, text) {
   ctx.closePath();
   ctx.fill();
 
-  // Reset shadow so it doesn't bleed into the text
+  // Reset shadow to avoid blur distortion on lines/text
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
 
-  // 3. Frosted Glass Top Tint Layer
+  // 3. Subtle Glass Surface Sheen
   ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
   ctx.fill();
 
-  // 4. Frosted Glass Top Rim Highlight Border
+  // 4. Bright Top Rim Highlight Line (Creates the liquid glass edge effect)
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -62,7 +61,7 @@ function drawTagPill(ctx, text) {
   ctx.lineTo(x + pillWidth - radius, y);
   ctx.stroke();
 
-  // Subtle side edge borders
+  // Subtle vertical side borders
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -72,14 +71,17 @@ function drawTagPill(ctx, text) {
   ctx.lineTo(x + pillWidth, 900);
   ctx.stroke();
 
-  // 5. Crisp White Bold Text
+  // 5. Crisp White Text
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // Text drop shadow for legibility over light backgrounds
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-  ctx.shadowBlur = 6;
-  ctx.fillText(text.toUpperCase(), 300, y + (pillHeight / 2) - 1);
+  
+  // Text drop shadow for maximum legibility over light posters
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 2;
+  
+  ctx.fillText(text.toUpperCase(), 300, y + (pillHeight / 2) - 2);
 
   ctx.restore();
 }
@@ -114,12 +116,13 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null) {
     const posterImg = await loadImage(`https://image.tmdb.org/t/p/w500${posterPath}`);
     ctx.drawImage(posterImg, 0, 0, 600, 900);
 
-    // 1. Overlay English Logo
+    // 1. Overlay English Logo (Shifted higher to leave clear room for tag)
     if (logoPath) {
       const logoImg = await loadImage(`https://image.tmdb.org/t/p/w500${logoPath}`);
       const logoWidth = 450;
       const logoHeight = (logoImg.height / logoImg.width) * logoWidth;
-      ctx.drawImage(logoImg, (600 - logoWidth) / 2, 700 - logoHeight / 2, logoWidth, logoHeight);
+      const logoY = tag ? 660 : 720;
+      ctx.drawImage(logoImg, (600 - logoWidth) / 2, logoY - logoHeight / 2, logoWidth, logoHeight);
     }
 
     // 2. Overlay Top-Left Rank Number
