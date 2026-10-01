@@ -102,4 +102,51 @@ app.get('/render-poster', async (req, res) => {
   }
 });
 
+// Poster Provider Endpoint
+app.get('/poster/:id.jpg', async (req, res) => {
+  const { id } = req.params;
+  let tmdbId = id;
+  let type = 'movie'; // Default fallback
+
+  try {
+    // If an IMDb ID (starts with "tt") is provided, convert it to TMDB ID
+    if (id.startsWith('tt')) {
+      const findRes = await axios.get(
+        `https://api.themoviedb.org/3/find/${id}?external_source=imdb_id`,
+        {
+          headers: TMDB_API_KEY.startsWith('ey') ? { Authorization: `Bearer ${TMDB_API_KEY}` } : {},
+          params: !TMDB_API_KEY.startsWith('ey') ? { api_key: TMDB_API_KEY } : {}
+        }
+      );
+
+      const movieMatch = findRes.data.movie_results?.[0];
+      const tvMatch = findRes.data.tv_results?.[0];
+
+      if (movieMatch) {
+        tmdbId = movieMatch.id;
+        type = 'movie';
+      } else if (tvMatch) {
+        tmdbId = tvMatch.id;
+        type = 'tv';
+      } else {
+        return res.status(404).send('Media not found on TMDB');
+      }
+    }
+
+    // Generate poster artwork (without rank overlay since it's a global provider)
+    const imageBuffer = await generatePoster(tmdbId, type, null, 'Now Streaming');
+
+    if (imageBuffer) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(imageBuffer);
+    } else {
+      res.status(404).send('Image generation failed');
+    }
+  } catch (err) {
+    console.error('Poster Provider Error:', err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
 module.exports = app;
