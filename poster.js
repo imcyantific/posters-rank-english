@@ -16,17 +16,27 @@ const auth = TMDB_API_KEY.startsWith('ey')
   ? { headers: { Authorization: `Bearer ${TMDB_API_KEY}` }, params: {} }
   : { headers: {}, params: { api_key: TMDB_API_KEY } };
 
-// Pick the original TMDB poster (with its own title art): best-rated English one first.
+// Pick the original TMDB poster: best-rated English one first, then textless,
+// then ANY language (e.g. Chinese-only releases), then the title's default poster.
 async function getPosterPath(type, tmdbId) {
+  const byVotes = (a, b) => (b.vote_average || 0) - (a.vote_average || 0);
+
   const { data } = await axios.get(
     `https://api.themoviedb.org/3/${type}/${tmdbId}/images`,
     { ...auth, params: { ...auth.params, include_image_language: 'en,null' } }
   );
   const posters = data.posters || [];
-  const byVotes = (a, b) => (b.vote_average || 0) - (a.vote_average || 0);
   const english = posters.filter(p => p.iso_639_1 === 'en').sort(byVotes);
   const textless = posters.filter(p => p.iso_639_1 === null).sort(byVotes);
-  return (english[0] || textless[0] || posters[0])?.file_path;
+  const found = (english[0] || textless[0] || posters[0])?.file_path;
+  if (found) return found;
+
+  // Fallback: the title has no English/textless posters, so use its default poster
+  const { data: details } = await axios.get(
+    `https://api.themoviedb.org/3/${type}/${tmdbId}`,
+    auth
+  );
+  return details.poster_path;
 }
 
 function roundedTopRect(ctx, x, y, w, h, r) {
