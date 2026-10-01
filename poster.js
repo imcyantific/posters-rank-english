@@ -11,26 +11,31 @@ try {
   console.log('Font registration error:', e.message);
 }
 
-// Draw toptoday style bottom liquid glass tag
+// Draw larger toptoday-style frosted glass bottom tag
 function drawTagPill(ctx, text) {
   if (!text) return;
   
   ctx.save();
-  ctx.font = '32px "BebasNeue"';
+  // Bumped up font size from 32px to 38px
+  ctx.font = '38px "BebasNeue"';
   const textMetrics = ctx.measureText(text.toUpperCase());
   
-  const paddingX = 28;
-  const pillWidth = Math.max(textMetrics.width + (paddingX * 2), 180);
-  const pillHeight = 45;
+  const paddingX = 34;
+  const pillWidth = Math.max(textMetrics.width + (paddingX * 2), 210);
+  const pillHeight = 52;
   const x = (600 - pillWidth) / 2;
-  const y = 855; // Anchored at the bottom edge
+  const y = 848; // Anchored closer to the bottom edge
 
-  // Glassmorphic / Liquid Dark Background
-  ctx.fillStyle = 'rgba(15, 15, 15, 0.78)';
+  const radius = 12;
+
+  // 1. Outer Soft Glow / Shadow Layer for Depth
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 4;
+
+  // 2. Base Dark Frosted Layer
+  ctx.fillStyle = 'rgba(12, 12, 14, 0.75)';
   ctx.beginPath();
-  
-  // Rounded top corners, square bottom anchored to canvas edge
-  const radius = 10;
   ctx.moveTo(x + radius, y);
   ctx.lineTo(x + pillWidth - radius, y);
   ctx.quadraticCurveTo(x + pillWidth, y, x + pillWidth, y + radius);
@@ -41,19 +46,40 @@ function drawTagPill(ctx, text) {
   ctx.closePath();
   ctx.fill();
 
-  // Subtle frosted glass highlight border on top
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-  ctx.lineWidth = 1.5;
+  // Reset shadow so it doesn't bleed into the text
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  // 3. Frosted Glass Top Tint Layer
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.fill();
+
+  // 4. Frosted Glass Top Rim Highlight Border
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
   ctx.lineTo(x + pillWidth - radius, y);
   ctx.stroke();
 
-  // White text
+  // Subtle side edge borders
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, y + radius);
+  ctx.lineTo(x, 900);
+  ctx.moveTo(x + pillWidth, y + radius);
+  ctx.lineTo(x + pillWidth, 900);
+  ctx.stroke();
+
+  // 5. Crisp White Bold Text
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text.toUpperCase(), 300, y + (pillHeight / 2) - 2);
+  // Text drop shadow for legibility over light backgrounds
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+  ctx.shadowBlur = 6;
+  ctx.fillText(text.toUpperCase(), 300, y + (pillHeight / 2) - 1);
 
   ctx.restore();
 }

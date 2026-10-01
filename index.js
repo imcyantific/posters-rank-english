@@ -106,17 +106,22 @@ app.get('/render-poster', async (req, res) => {
 app.get('/poster/:id.jpg', async (req, res) => {
   const { id } = req.params;
   let tmdbId = id;
-  let type = 'movie'; // Default fallback
+  let type = 'movie';
+  let itemData = null;
 
   try {
-    // If an IMDb ID (starts with "tt") is provided, convert it to TMDB ID
+    const authHeaders = TMDB_API_KEY.startsWith('ey') 
+      ? { Authorization: `Bearer ${TMDB_API_KEY}` } 
+      : {};
+    const authParams = !TMDB_API_KEY.startsWith('ey') 
+      ? { api_key: TMDB_API_KEY } 
+      : {};
+
+    // 1. Resolve IMDb ID to TMDB ID if needed
     if (id.startsWith('tt')) {
       const findRes = await axios.get(
         `https://api.themoviedb.org/3/find/${id}?external_source=imdb_id`,
-        {
-          headers: TMDB_API_KEY.startsWith('ey') ? { Authorization: `Bearer ${TMDB_API_KEY}` } : {},
-          params: !TMDB_API_KEY.startsWith('ey') ? { api_key: TMDB_API_KEY } : {}
-        }
+        { headers: authHeaders, params: authParams }
       );
 
       const movieMatch = findRes.data.movie_results?.[0];
@@ -125,16 +130,38 @@ app.get('/poster/:id.jpg', async (req, res) => {
       if (movieMatch) {
         tmdbId = movieMatch.id;
         type = 'movie';
+        itemData = movieMatch;
       } else if (tvMatch) {
         tmdbId = tvMatch.id;
         type = 'tv';
+        itemData = tvMatch;
       } else {
-        return res.status(404).send('Media not found on TMDB');
+        return res.status(404).send('Media not found');
+      }
+    } else {
+      // Numerical TMDB ID fallback: fetch details
+      try {
+        const detailRes = await axios.get(
+          `https://api.themoviedb.org/3/movie/${id}`,
+          { headers: authHeaders, params: authParams }
+        );
+        itemData = detailRes.data;
+        type = 'movie';
+      } catch (e) {
+        const tvDetailRes = await axios.get(
+          `https://api.themoviedb.org/3/tv/${id}`,
+          { headers: authHeaders, params: authParams }
+        );
+        itemData = tvDetailRes.data;
+        type = 'tv';
       }
     }
 
-    // Generate poster artwork (without rank overlay since it's a global provider)
-    const imageBuffer = await generatePoster(tmdbId, type, null, 'Now Streaming');
+    // 2. Dynamically determine the context-aware tag
+    const dynamicTag = determineTag(itemData, type);
+
+    // 3. Generate artwork with larger frosted pill and dynamic tag
+    const imageBuffer = await generatePoster(tmdbId, type, null, dynamicTag);
 
     if (imageBuffer) {
       res.setHeader('Content-Type', 'image/jpeg');
