@@ -13,8 +13,9 @@ try {
 
 // Draw rounded pill badge at bottom center
 function drawTagPill(ctx, text) {
-  ctx.save();
+  if (!text) return;
   
+  ctx.save();
   ctx.font = '28px "BebasNeue"';
   const textMetrics = ctx.measureText(text);
   const paddingX = 18;
@@ -22,25 +23,34 @@ function drawTagPill(ctx, text) {
   const pillWidth = textMetrics.width + (paddingX * 2);
   const pillHeight = 36;
   const x = (600 - pillWidth) / 2;
-  const y = 840;
+  const y = 830;
   const radius = 8;
 
-  // Pill dark background
-  ctx.fillStyle = 'rgba(20, 20, 20, 0.85)';
+  // Dark pill background using standard canvas path
+  ctx.fillStyle = 'rgba(15, 15, 15, 0.88)';
   ctx.beginPath();
-  ctx.roundRect(x, y, pillWidth, pillHeight, radius);
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + pillWidth - radius, y);
+  ctx.quadraticCurveTo(x + pillWidth, y, x + pillWidth, y + radius);
+  ctx.lineTo(x + pillWidth, y + pillHeight - radius);
+  ctx.quadraticCurveTo(x + pillWidth, y + pillHeight, x + pillWidth - radius, y + pillHeight);
+  ctx.lineTo(x + radius, y + pillHeight);
+  ctx.quadraticCurveTo(x, y + pillHeight, x, y + pillHeight - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
   ctx.fill();
 
-  // Subtle border
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  // Subtle light border
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  // White text inside pill
+  // Text inside pill
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, 300, y + (pillHeight / 2) + 2);
+  ctx.fillText(text.toUpperCase(), 300, y + (pillHeight / 2) + 2);
 
   ctx.restore();
 }
