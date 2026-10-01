@@ -98,6 +98,7 @@ app.get('/render-poster', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=86400');
     res.send(imageBuffer);
   } else {
+    res.setHeader('Cache-Control', 'no-store'); // never let apps cache a failure
     res.status(404).send('Image generation failed');
   }
 });
@@ -168,6 +169,7 @@ app.get('/poster/:id.jpg', async (req, res) => {
       res.setHeader('Cache-Control', 'public, max-age=86400');
       res.send(imageBuffer);
     } else {
+      res.setHeader('Cache-Control', 'no-store');
       res.status(404).send('Image generation failed');
     }
   } catch (err) {
