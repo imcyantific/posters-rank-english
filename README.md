@@ -1,2 +1,2 @@
 # posters-rank-english
-Ranked Catalog Posters powered by TMDB
+Top 10 Catalog Posters powered by TMDB
