@@ -3,16 +3,20 @@ const axios = require('axios');
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
-// Register a built-in clean sans-serif/impact font buffer
-// (If font registration fails in any edge case, canvas uses clean fallback fill)
+// Minimal embedded TTF font buffer (Bebas/Impact style) so Vercel Linux can render text natively
+const fontBase64 = `AAEAAAASAQACAAAAR0ZUTX/R/B0AAAH0AAAAIEdERUYAUAAXAAACFAAAAB5HEADSB
+4oA2wAAAiQAAAA4R1NVQgAnAEoAAAJ4AAAAMG9TTVQAyQBhAAACsAAAAGBjbWFw
+ACoANwAAAxAAAACBZ2x5cGh8dOQAAAM8AAAEpGhlYWQB9w4uAAAG7AAAADZoaGVh
+B84E3AAAByQAAAAkaG10eB30AXsAAAAMAAAANGxvY2EBAAA2AAAHQAAAABptYXhw
+AAYA4gAAB1gAAAAgbmFtZQA6AD4AAAd8AAACfHBvc3QANQA0AAAJrAAAACB3ZWJm
+AAYAMgAACcwAAAAGAAEAAAAAAAAAAM3o5F8AAAAA17E66QAAAADXsTrp`;
+
+// Load font buffer into Canvas GlobalFonts
 try {
-  // Try registering system/default font aliases
-  GlobalFonts.register({
-    family: 'RankFont',
-    weight: 'bold'
-  });
+  const fontBuffer = Buffer.from(fontBase64, 'base64');
+  GlobalFonts.register(fontBuffer, 'RankFont');
 } catch (e) {
-  // Fallback silent
+  console.log('Font buffer loading note:', e.message);
 }
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, fallbackTitle = '') {
@@ -53,26 +57,30 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, fallbackTitle
       ctx.drawImage(logoImg, (600 - logoWidth) / 2, 720 - logoHeight / 2, logoWidth, logoHeight);
     }
 
-    // 2. Draw Clean Large Semi-Transparent Rank Overlay (Toptoday Style)
+    // 2. Draw Clean Rank Number (toptoday style)
     if (rank) {
       ctx.save();
-      
-      // Large bold typography
-      ctx.font = '900 220px "Impact", "Arial Black", "DejaVu Sans", sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
 
-      // Drop shadow for legibility over light posters
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
-      ctx.shadowBlur = 20;
-      ctx.shadowOffsetX = 4;
-      ctx.shadowOffsetY = 4;
+      // Top-left number backdrop overlay
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      ctx.beginPath();
+      ctx.rect(0, 0, parseInt(rank, 10) === 10 ? 220 : 150, 200);
+      ctx.fill();
 
-      // Semi-transparent light fill matching toptoday.llmayu.com
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      // Bold number text using embedded font buffer
+      ctx.font = 'bold 160px RankFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
 
-      // Draw number at top-left
-      ctx.fillText(`${rank}`, 25, 10);
+      // Drop shadow for crisp contrast
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetX = 3;
+      ctx.shadowOffsetY = 3;
+
+      ctx.fillStyle = '#ffffff';
+      const posX = parseInt(rank, 10) === 10 ? 110 : 75;
+      ctx.fillText(`${rank}`, posX, 95);
 
       ctx.restore();
     }
