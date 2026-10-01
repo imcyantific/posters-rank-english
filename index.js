@@ -43,7 +43,7 @@ app.get('/manifest.json', (req, res) => {
     id: "com.english.posters.rank",
     version: "1.0.0",
     name: "Top 10 Today (English Posters)",
-    description: "Top Movies & TV Shows with guaranteed English logos",
+    description: "Top 10 Movies & TV Shows with original TMDB posters and rank numbers",
     resources: ["catalog"],
     types: ["movie", "series"],
     catalogs: [
@@ -76,7 +76,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
         id: `tmdb:${item.id}`,
         type: type,
         name: item.title || item.name,
-        poster: `${HOST_URL}/render-poster?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=13`
+        poster: `${HOST_URL}/render-poster?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=14`
       };
     });
 

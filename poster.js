@@ -2,150 +2,134 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const axios = require('axios');
 const path = require('path');
 
-const TMDB_API_KEY = process.env.TMDB_API_KEY;
+const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
+const W = 600;
+const H = 900;
 
 try {
-  const fontPath = path.join(__dirname, 'BebasNeue-Regular.ttf');
-  GlobalFonts.registerFromPath(fontPath, 'BebasNeue');
+  GlobalFonts.registerFromPath(path.join(__dirname, 'BebasNeue-Regular.ttf'), 'BebasNeue');
 } catch (e) {
   console.log('Font registration error:', e.message);
 }
 
-// Draw authentic toptoday-style frosted glass pill overlay
-function drawTagPill(ctx, text) {
-  if (!text) return;
-  
-  ctx.save();
-  // Scaled up font for high visibility and readability
-  ctx.font = '44px "BebasNeue"';
-  const textMetrics = ctx.measureText(text.toUpperCase());
-  
-  const paddingX = 36;
-  const pillWidth = Math.max(textMetrics.width + (paddingX * 2), 240);
-  const pillHeight = 58;
-  const x = (600 - pillWidth) / 2;
-  const y = 842; // Anchored directly at bottom edge
-  const radius = 10;
+const auth = TMDB_API_KEY.startsWith('ey')
+  ? { headers: { Authorization: `Bearer ${TMDB_API_KEY}` }, params: {} }
+  : { headers: {}, params: { api_key: TMDB_API_KEY } };
 
-  // 1. Heavy Outer Drop Shadow
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
-  ctx.shadowBlur = 20;
-  ctx.shadowOffsetY = 6;
+// Pick the original TMDB poster (with its own title art): best-rated English one first.
+async function getPosterPath(type, tmdbId) {
+  const { data } = await axios.get(
+    `https://api.themoviedb.org/3/${type}/${tmdbId}/images`,
+    { ...auth, params: { ...auth.params, include_image_language: 'en,null' } }
+  );
+  const posters = data.posters || [];
+  const byVotes = (a, b) => (b.vote_average || 0) - (a.vote_average || 0);
+  const english = posters.filter(p => p.iso_639_1 === 'en').sort(byVotes);
+  const textless = posters.filter(p => p.iso_639_1 === null).sort(byVotes);
+  return (english[0] || textless[0] || posters[0])?.file_path;
+}
 
-  // 2. Dark Frosted Glass Base
-  ctx.fillStyle = 'rgba(12, 12, 15, 0.82)';
+function roundedTopRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + pillWidth - radius, y);
-  ctx.quadraticCurveTo(x + pillWidth, y, x + pillWidth, y + radius);
-  ctx.lineTo(x + pillWidth, 900);
-  ctx.lineTo(x, 900);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h);
   ctx.closePath();
+}
+
+// Frosted glass tab at the bottom: the poster is blurred *inside* the shape.
+function drawTagPill(ctx, posterImg, text) {
+  if (!text) return;
+  const label = text.toUpperCase();
+
+  ctx.save();
+  ctx.font = '72px "BebasNeue"';
+  try { ctx.letterSpacing = '2px'; } catch (_) {}
+  const textWidth = ctx.measureText(label).width;
+
+  const pillW = Math.min(W - 40, Math.max(textWidth + 90, 300));
+  const pillH = 96;
+  const x = (W - pillW) / 2;
+  const y = H - pillH;
+  const r = 22;
+
+  // 1. Soft shadow above the tab so it lifts off the poster
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = -2;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  roundedTopRect(ctx, x, y, pillW, pillH, r);
   ctx.fill();
+  ctx.restore();
 
-  // Reset shadow to avoid blur distortion on lines/text
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
+  // 2. Real blur: redraw the poster blurred, clipped to the tab shape
+  ctx.save();
+  roundedTopRect(ctx, x, y, pillW, pillH, r);
+  ctx.clip();
+  ctx.filter = 'blur(18px)';
+  ctx.drawImage(posterImg, -40, -40, W + 80, H + 80); // oversize to avoid transparent edges
+  ctx.filter = 'none';
 
-  // 3. Subtle Glass Surface Sheen
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-  ctx.fill();
+  // 3. Dark tint + glass sheen (light at top fading down)
+  ctx.fillStyle = 'rgba(12, 12, 18, 0.55)';
+  ctx.fillRect(x, y, pillW, pillH);
+  const sheen = ctx.createLinearGradient(0, y, 0, y + pillH);
+  sheen.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
+  sheen.addColorStop(1, 'rgba(255, 255, 255, 0.04)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(x, y, pillW, pillH);
+  ctx.restore();
 
-  // 4. Bright Top Rim Highlight Line (Creates the liquid glass edge effect)
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+  // 4. Rim highlight along the top edge and sides
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
   ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + pillWidth - radius, y);
+  roundedTopRect(ctx, x, y + 1, pillW, pillH, r);
   ctx.stroke();
 
-  // Subtle vertical side borders
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(x, y + radius);
-  ctx.lineTo(x, 900);
-  ctx.moveTo(x + pillWidth, y + radius);
-  ctx.lineTo(x + pillWidth, 900);
-  ctx.stroke();
-
-  // 5. Crisp White Text
+  // 5. Text
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  
-  // Text drop shadow for maximum legibility over light posters
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
-  ctx.shadowBlur = 8;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+  ctx.shadowBlur = 6;
   ctx.shadowOffsetY = 2;
-  
-  ctx.fillText(text.toUpperCase(), 300, y + (pillHeight / 2) - 2);
+  ctx.fillText(label, W / 2, y + pillH / 2 + 2);
+  ctx.restore();
+}
 
+function drawRank(ctx, rank) {
+  ctx.save();
+  ctx.font = '220px "BebasNeue"';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = 15;
+  ctx.shadowOffsetX = 4;
+  ctx.shadowOffsetY = 4;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fillText(`${rank}`, 20, 0);
   ctx.restore();
 }
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null) {
   try {
-    const imagesRes = await axios.get(
-      `https://api.themoviedb.org/3/${type}/${tmdbId}/images?include_image_language=en,null`,
-      { 
-        headers: TMDB_API_KEY.startsWith('ey') 
-          ? { Authorization: `Bearer ${TMDB_API_KEY}` } 
-          : {},
-        params: !TMDB_API_KEY.startsWith('ey') ? { api_key: TMDB_API_KEY } : {}
-      }
-    );
+    const posterPath = await getPosterPath(type, tmdbId);
+    if (!posterPath) throw new Error('Poster not found');
 
-    const posters = imagesRes.data.posters || [];
-    const logos = imagesRes.data.logos || [];
-
-    const textlessPoster = posters.find(p => p.iso_639_1 === null);
-    const englishPoster = posters.find(p => p.iso_639_1 === 'en');
-    const posterPath = textlessPoster?.file_path || englishPoster?.file_path || posters[0]?.file_path;
-
-    const englishLogo = logos.find(l => l.iso_639_1 === 'en');
-    const logoPath = englishLogo?.file_path;
-
-    if (!posterPath) throw new Error("Poster not found");
-
-    const canvas = createCanvas(600, 900);
+    const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
 
-    const posterImg = await loadImage(`https://image.tmdb.org/t/p/w500${posterPath}`);
-    ctx.drawImage(posterImg, 0, 0, 600, 900);
+    const posterImg = await loadImage(`https://image.tmdb.org/t/p/w780${posterPath}`);
+    ctx.drawImage(posterImg, 0, 0, W, H);
 
-    // 1. Overlay English Logo (Shifted higher to leave clear room for tag)
-    if (logoPath) {
-      const logoImg = await loadImage(`https://image.tmdb.org/t/p/w500${logoPath}`);
-      const logoWidth = 450;
-      const logoHeight = (logoImg.height / logoImg.width) * logoWidth;
-      const logoY = tag ? 660 : 720;
-      ctx.drawImage(logoImg, (600 - logoWidth) / 2, logoY - logoHeight / 2, logoWidth, logoHeight);
-    }
+    if (rank) drawRank(ctx, rank);        // only passed for the top 10 catalog
+    if (tag) drawTagPill(ctx, posterImg, tag);
 
-    // 2. Overlay Top-Left Rank Number
-    if (rank) {
-      ctx.save();
-      ctx.font = '220px "BebasNeue"';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-      ctx.shadowBlur = 15;
-      ctx.shadowOffsetX = 4;
-      ctx.shadowOffsetY = 4;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-      ctx.fillText(`${rank}`, 20, 0);
-      ctx.restore();
-    }
-
-    // 3. Overlay Bottom Liquid Glass Tag
-    if (tag) {
-      drawTagPill(ctx, tag);
-    }
-
-    return canvas.toBuffer('image/jpeg');
+    return canvas.toBuffer('image/jpeg', 90);
   } catch (err) {
     console.error('Error generating poster:', err.message);
     return null;
