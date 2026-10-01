@@ -11,46 +11,49 @@ try {
   console.log('Font registration error:', e.message);
 }
 
-// Draw rounded pill badge at bottom center
+// Draw toptoday style bottom liquid glass tag
 function drawTagPill(ctx, text) {
   if (!text) return;
   
   ctx.save();
-  ctx.font = '28px "BebasNeue"';
-  const textMetrics = ctx.measureText(text);
-  const paddingX = 18;
-  const paddingY = 8;
-  const pillWidth = textMetrics.width + (paddingX * 2);
-  const pillHeight = 36;
+  ctx.font = '32px "BebasNeue"';
+  const textMetrics = ctx.measureText(text.toUpperCase());
+  
+  const paddingX = 28;
+  const pillWidth = Math.max(textMetrics.width + (paddingX * 2), 180);
+  const pillHeight = 45;
   const x = (600 - pillWidth) / 2;
-  const y = 830;
-  const radius = 8;
+  const y = 855; // Anchored at the bottom edge
 
-  // Dark pill background using standard canvas path
-  ctx.fillStyle = 'rgba(15, 15, 15, 0.88)';
+  // Glassmorphic / Liquid Dark Background
+  ctx.fillStyle = 'rgba(15, 15, 15, 0.78)';
   ctx.beginPath();
+  
+  // Rounded top corners, square bottom anchored to canvas edge
+  const radius = 10;
   ctx.moveTo(x + radius, y);
   ctx.lineTo(x + pillWidth - radius, y);
   ctx.quadraticCurveTo(x + pillWidth, y, x + pillWidth, y + radius);
-  ctx.lineTo(x + pillWidth, y + pillHeight - radius);
-  ctx.quadraticCurveTo(x + pillWidth, y + pillHeight, x + pillWidth - radius, y + pillHeight);
-  ctx.lineTo(x + radius, y + pillHeight);
-  ctx.quadraticCurveTo(x, y + pillHeight, x, y + pillHeight - radius);
+  ctx.lineTo(x + pillWidth, 900);
+  ctx.lineTo(x, 900);
   ctx.lineTo(x, y + radius);
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
   ctx.fill();
 
-  // Subtle light border
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  // Subtle frosted glass highlight border on top
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
   ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + pillWidth - radius, y);
   ctx.stroke();
 
-  // Text inside pill
+  // White text
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text.toUpperCase(), 300, y + (pillHeight / 2) + 2);
+  ctx.fillText(text.toUpperCase(), 300, y + (pillHeight / 2) - 2);
 
   ctx.restore();
 }
@@ -108,7 +111,7 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null) {
       ctx.restore();
     }
 
-    // 3. Overlay Bottom Tag Pill
+    // 3. Overlay Bottom Liquid Glass Tag
     if (tag) {
       drawTagPill(ctx, tag);
     }
