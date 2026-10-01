@@ -1,22 +1,32 @@
-const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const axios = require('axios');
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
-// Minimal embedded TTF font buffer (Bebas/Impact style) so Vercel Linux can render text natively
-const fontBase64 = `AAEAAAASAQACAAAAR0ZUTX/R/B0AAAH0AAAAIEdERUYAUAAXAAACFAAAAB5HEADSB
-4oA2wAAAiQAAAA4R1NVQgAnAEoAAAJ4AAAAMG9TTVQAyQBhAAACsAAAAGBjbWFw
-ACoANwAAAxAAAACBZ2x5cGh8dOQAAAM8AAAEpGhlYWQB9w4uAAAG7AAAADZoaGVh
-B84E3AAAByQAAAAkaG10eB30AXsAAAAMAAAANGxvY2EBAAA2AAAHQAAAABptYXhw
-AAYA4gAAB1gAAAAgbmFtZQA6AD4AAAd8AAACfHBvc3QANQA0AAAJrAAAACB3ZWJm
-AAYAMgAACcwAAAAGAAEAAAAAAAAAAM3o5F8AAAAA17E66QAAAADXsTrp`;
+// Generate SVG buffer for rank number to bypass OS font requirements
+async function createRankSvgOverlay(rank) {
+  const isTen = parseInt(rank, 10) === 10;
+  const width = isTen ? 200 : 150;
+  const height = 180;
+  
+  const svgString = `
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="${width}" height="${height}" fill="rgba(0,0,0,0.45)" />
+      <text 
+        x="${width / 2}" 
+        y="125" 
+        font-family="Impact, Arial Black, sans-serif" 
+        font-size="140" 
+        font-weight="bold" 
+        fill="#ffffff" 
+        text-anchor="middle"
+        style="filter: drop-shadow(3px 3px 5px rgba(0,0,0,0.8));"
+      >${rank}</text>
+    </svg>
+  `;
 
-// Load font buffer into Canvas GlobalFonts
-try {
-  const fontBuffer = Buffer.from(fontBase64, 'base64');
-  GlobalFonts.register(fontBuffer, 'RankFont');
-} catch (e) {
-  console.log('Font buffer loading note:', e.message);
+  const svgBase64 = Buffer.from(svgString).toString('base64');
+  return await loadImage(`data:image/svg+xml;base64,${svgBase64}`);
 }
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, fallbackTitle = '') {
@@ -57,32 +67,10 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, fallbackTitle
       ctx.drawImage(logoImg, (600 - logoWidth) / 2, 720 - logoHeight / 2, logoWidth, logoHeight);
     }
 
-    // 2. Draw Clean Rank Number (toptoday style)
+    // 2. Overlay SVG Rank Number (Guaranteed Vercel Compatibility)
     if (rank) {
-      ctx.save();
-
-      // Top-left number backdrop overlay
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-      ctx.beginPath();
-      ctx.rect(0, 0, parseInt(rank, 10) === 10 ? 220 : 150, 200);
-      ctx.fill();
-
-      // Bold number text using embedded font buffer
-      ctx.font = 'bold 160px RankFont, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      // Drop shadow for crisp contrast
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-      ctx.shadowBlur = 12;
-      ctx.shadowOffsetX = 3;
-      ctx.shadowOffsetY = 3;
-
-      ctx.fillStyle = '#ffffff';
-      const posX = parseInt(rank, 10) === 10 ? 110 : 75;
-      ctx.fillText(`${rank}`, posX, 95);
-
-      ctx.restore();
+      const rankSvgImage = await createRankSvgOverlay(rank);
+      ctx.drawImage(rankSvgImage, 0, 0);
     }
 
     return canvas.toBuffer('image/jpeg');
