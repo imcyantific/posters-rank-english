@@ -1,0 +1,27 @@
+{
+  "name": "posters-rank-english",
+  "version": "1.0.0",
+  "description": "Ranked Catalog Posters powered by TMDB",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imcyantific/posters-rank-english.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/imcyantific/posters-rank-english/issues"
+  },
+  "homepage": "https://github.com/imcyantific/posters-rank-english#readme",
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.9",
+    "axios": "^1.20.0",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1"
+  }
+}
