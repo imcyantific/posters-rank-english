@@ -76,7 +76,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
         id: `tmdb:${item.id}`,
         type: type,
         name: item.title || item.name,
-        poster: `${HOST_URL}/render-poster?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=14`
+        poster: `${HOST_URL}/render-poster?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=15`
       };
     });
 

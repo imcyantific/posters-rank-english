@@ -46,15 +46,15 @@ function drawTagPill(ctx, posterImg, text) {
   const label = text.toUpperCase();
 
   ctx.save();
-  ctx.font = '72px "BebasNeue"';
-  try { ctx.letterSpacing = '2px'; } catch (_) {}
+  ctx.font = '50px "BebasNeue"';
+  try { ctx.letterSpacing = '1.5px'; } catch (_) {}
   const textWidth = ctx.measureText(label).width;
 
-  const pillW = Math.min(W - 40, Math.max(textWidth + 90, 300));
-  const pillH = 96;
+  const pillW = Math.min(W - 40, Math.max(textWidth + 64, 220));
+  const pillH = 66;
   const x = (W - pillW) / 2;
   const y = H - pillH;
-  const r = 22;
+  const r = 16;
 
   // 1. Soft shadow above the tab so it lifts off the poster
   ctx.save();
@@ -70,7 +70,7 @@ function drawTagPill(ctx, posterImg, text) {
   ctx.save();
   roundedTopRect(ctx, x, y, pillW, pillH, r);
   ctx.clip();
-  ctx.filter = 'blur(18px)';
+  ctx.filter = 'blur(14px)';
   ctx.drawImage(posterImg, -40, -40, W + 80, H + 80); // oversize to avoid transparent edges
   ctx.filter = 'none';
 
