@@ -43,24 +43,28 @@ async function generatePoster(tmdbId, type = 'movie', rank = null) {
 
     // 4. Draw Rank Badge (e.g., "#1")
     if (rank) {
-      // Badge Background Ribbon
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+      const badgeX = 85;  // Shift right from left edge
+      const badgeY = 85;  // Shift down from top edge
+      const radius = 65;  // Scaled down badge size for 600x900 canvas
+
+      // Badge Background Circle
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
       ctx.beginPath();
-      ctx.arc(0, 0, 140, 0, Math.PI * 2);
+      ctx.arc(badgeX, badgeY, radius, 0, Math.PI * 2);
       ctx.fill();
 
-      // Badge Border
-      ctx.strokeStyle = '#e50914'; // Red accent
-      ctx.lineWidth = 10;
+      // Red Border Ring
+      ctx.strokeStyle = '#e50914';
+      ctx.lineWidth = 6;
       ctx.stroke();
 
       // Rank Text
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 70px Sans-Serif';
+      ctx.font = 'bold 55px Sans-Serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`#${rank}`, 55, 75);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`#${rank}`, badgeX, badgeY);
     }
-
     return canvas.toBuffer('image/jpeg');
   } catch (err) {
     console.error('Error generating poster:', err.message);
