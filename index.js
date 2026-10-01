@@ -60,7 +60,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
         type: type,
         name: item.title || item.name,
         // Point the poster field to our dynamic rendering endpoint
-        poster: `${HOST_URL}/render-poster?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&title=${encodeURIComponent(item.title || item.name)}&v=4`
+        poster: `${HOST_URL}/render-poster?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&title=${encodeURIComponent(item.title || item.name)}&v=5`
       };
     }));
 

@@ -1,121 +1,18 @@
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const axios = require('axios');
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
-// Vector drawing function for large semi-transparent rank numbers
-function drawLargeRankNumber(ctx, rank) {
-  ctx.save();
-  
-  // Style matching toptoday.llmayu.com: Light semi-transparent fill with subtle glow
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-  ctx.shadowBlur = 15;
-
-  const num = parseInt(rank, 10);
-
-  // Function to draw individual digits scaled and positioned
-  function drawDigit(digit, x, scale = 1.0) {
-    ctx.save();
-    ctx.translate(x, 180);
-    ctx.scale(scale, scale);
-
-    if (digit === 1) {
-      ctx.beginPath();
-      ctx.moveTo(-15, -70);
-      ctx.lineTo(10, -110);
-      ctx.lineTo(10, 80);
-      ctx.stroke();
-      ctx.fill();
-    } else if (digit === 2) {
-      ctx.beginPath();
-      ctx.arc(0, -50, 45, Math.PI, 0, false);
-      ctx.lineTo(-45, 80);
-      ctx.lineTo(50, 80);
-      ctx.lineTo(50, 50);
-      ctx.lineTo(-10, 50);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.fill();
-    } else if (digit === 3) {
-      ctx.beginPath();
-      ctx.arc(0, -45, 40, Math.PI * 1.2, Math.PI * 0.35);
-      ctx.arc(5, 35, 45, -Math.PI * 0.45, Math.PI * 0.85);
-      ctx.stroke();
-      ctx.fill();
-    } else if (digit === 4) {
-      ctx.beginPath();
-      ctx.moveTo(20, 80);
-      ctx.lineTo(20, -100);
-      ctx.lineTo(-45, 20);
-      ctx.lineTo(45, 20);
-      ctx.lineTo(45, 50);
-      ctx.lineTo(-15, 50);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.fill();
-    } else if (digit === 5) {
-      ctx.beginPath();
-      ctx.moveTo(35, -100);
-      ctx.lineTo(-30, -100);
-      ctx.lineTo(-35, -15);
-      ctx.arc(5, 25, 50, -Math.PI * 0.6, Math.PI * 0.75);
-      ctx.lineTo(-30, -15);
-      ctx.stroke();
-      ctx.fill();
-    } else if (digit === 6) {
-      // Fixed upright 6
-      ctx.beginPath();
-      ctx.arc(0, 30, 45, 0, Math.PI * 2);
-      ctx.moveTo(42, 10);
-      ctx.bezierCurveTo(35, -60, -10, -105, -35, -100);
-      ctx.bezierCurveTo(-15, -100, 25, -40, -42, 20);
-      ctx.stroke();
-      ctx.fill();
-    } else if (digit === 7) {
-      ctx.beginPath();
-      ctx.moveTo(-45, -100);
-      ctx.lineTo(45, -100);
-      ctx.lineTo(-15, 80);
-      ctx.stroke();
-      ctx.fill();
-    } else if (digit === 8) {
-      ctx.beginPath();
-      ctx.arc(0, -40, 38, 0, Math.PI * 2);
-      ctx.arc(0, 32, 48, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fill();
-    } else if (digit === 9) {
-      ctx.beginPath();
-      ctx.arc(0, -35, 45, 0, Math.PI * 2);
-      ctx.moveTo(-42, -15);
-      ctx.bezierCurveTo(-35, 55, 10, 100, 35, 95);
-      ctx.stroke();
-      ctx.fill();
-    } else if (digit === 0) {
-      ctx.beginPath();
-      ctx.arc(0, -10, 48, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
-  // Draw digits based on rank number
-  if (num === 10) {
-    // Proportional twin placement for 10
-    drawDigit(1, 80, 0.95);
-    drawDigit(0, 175, 0.95);
-  } else {
-    drawDigit(num, 90, 1.3);
-  }
-
-  ctx.restore();
+// Register a built-in clean sans-serif/impact font buffer
+// (If font registration fails in any edge case, canvas uses clean fallback fill)
+try {
+  // Try registering system/default font aliases
+  GlobalFonts.register({
+    family: 'RankFont',
+    weight: 'bold'
+  });
+} catch (e) {
+  // Fallback silent
 }
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, fallbackTitle = '') {
@@ -148,7 +45,7 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, fallbackTitle
     const posterImg = await loadImage(`https://image.tmdb.org/t/p/w500${posterPath}`);
     ctx.drawImage(posterImg, 0, 0, 600, 900);
 
-    // Overlay English Logo
+    // 1. Overlay English Logo
     if (logoPath) {
       const logoImg = await loadImage(`https://image.tmdb.org/t/p/w500${logoPath}`);
       const logoWidth = 450;
@@ -156,9 +53,28 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, fallbackTitle
       ctx.drawImage(logoImg, (600 - logoWidth) / 2, 720 - logoHeight / 2, logoWidth, logoHeight);
     }
 
-    // Draw Large Semi-transparent Overlay Number (toptoday style)
+    // 2. Draw Clean Large Semi-Transparent Rank Overlay (Toptoday Style)
     if (rank) {
-      drawLargeRankNumber(ctx, rank);
+      ctx.save();
+      
+      // Large bold typography
+      ctx.font = '900 220px "Impact", "Arial Black", "DejaVu Sans", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+
+      // Drop shadow for legibility over light posters
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+      ctx.shadowBlur = 20;
+      ctx.shadowOffsetX = 4;
+      ctx.shadowOffsetY = 4;
+
+      // Semi-transparent light fill matching toptoday.llmayu.com
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+
+      // Draw number at top-left
+      ctx.fillText(`${rank}`, 25, 10);
+
+      ctx.restore();
     }
 
     return canvas.toBuffer('image/jpeg');
