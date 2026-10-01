@@ -10,6 +10,11 @@ app.use(cors());
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
+// Redirect root URL to manifest.json
+app.get('/', (req, res) => {
+  res.redirect('/manifest.json');
+});
+
 // 1. Manifest Endpoint
 app.get('/manifest.json', (req, res) => {
   res.json({
