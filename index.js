@@ -60,7 +60,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
         type: type,
         name: item.title || item.name,
         // Point the poster field to our dynamic rendering endpoint
-        poster: `${HOST_URL}/render-poster?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}`
+        poster: `${HOST_URL}/render-poster?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&title=${encodeURIComponent(item.title || item.name)}`
       };
     }));
 
@@ -73,13 +73,13 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
 
 // 3. Dynamic Poster Rendering Route
 app.get('/render-poster', async (req, res) => {
-  const { tmdbId, type, rank } = req.query;
+  const { tmdbId, type, rank, title } = req.query;
   
-  const imageBuffer = await generatePoster(tmdbId, type, rank);
+  const imageBuffer = await generatePoster(tmdbId, type, rank, title);
   
   if (imageBuffer) {
     res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+    res.setHeader('Cache-Control', 'public, max-age=86400');
     res.send(imageBuffer);
   } else {
     res.status(404).send('Image generation failed');
