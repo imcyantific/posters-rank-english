@@ -6,7 +6,9 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const W = 600;
 const H = 900;
 
+// Inter SemiBold = pill text (clean, readable). Bebas Neue = rank numbers.
 try {
+  GlobalFonts.registerFromPath(path.join(__dirname, 'Inter-SemiBold.ttf'), 'Inter');
   GlobalFonts.registerFromPath(path.join(__dirname, 'BebasNeue-Regular.ttf'), 'BebasNeue');
 } catch (e) {
   console.log('Font registration error:', e.message);
@@ -17,7 +19,7 @@ const auth = TMDB_API_KEY.startsWith('ey')
   : { headers: {}, params: { api_key: TMDB_API_KEY } };
 
 // Pick the original TMDB poster: best-rated English one first, then textless,
-// then ANY language (e.g. Chinese-only releases), then the title's default poster.
+// then ANY language, then the title's default poster.
 async function getPosterPath(type, tmdbId) {
   const byVotes = (a, b) => (b.vote_average || 0) - (a.vote_average || 0);
 
@@ -31,7 +33,6 @@ async function getPosterPath(type, tmdbId) {
   const found = (english[0] || textless[0] || posters[0])?.file_path;
   if (found) return found;
 
-  // Fallback: the title has no English/textless posters, so use its default poster
   const { data: details } = await axios.get(
     `https://api.themoviedb.org/3/${type}/${tmdbId}`,
     auth
@@ -50,64 +51,75 @@ function roundedTopRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Frosted glass tab at the bottom: the poster is blurred *inside* the shape.
-function drawTagPill(ctx, posterImg, text) {
+// Blur the pixels ALREADY on the canvas under the pill, so the blur lines up
+// perfectly with the poster. Uses downscale -> upscale, which works on every
+// canvas build (ctx.filter is unreliable on some serverless runtimes).
+function blurRegion(srcCanvas, x, y, w, h, pad = 40, shrink = 10) {
+  const sx = Math.max(0, x - pad);
+  const sy = Math.max(0, y - pad);
+  const sw = Math.min(W - sx, w + pad * 2);
+  const sh = Math.min(H - sy, h + pad * 2);
+
+  const small = createCanvas(Math.max(1, Math.round(sw / shrink)), Math.max(1, Math.round(sh / shrink)));
+  const sctx = small.getContext('2d');
+  sctx.imageSmoothingEnabled = true;
+  sctx.imageSmoothingQuality = 'high';
+  sctx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, small.width, small.height);
+
+  const big = createCanvas(sw, sh);
+  const bctx = big.getContext('2d');
+  bctx.imageSmoothingEnabled = true;
+  bctx.imageSmoothingQuality = 'high';
+  bctx.drawImage(small, 0, 0, sw, sh);
+  return { canvas: big, sx, sy };
+}
+
+// Frosted-glass tab at the bottom of the poster.
+function drawTagPill(ctx, text) {
   if (!text) return;
-  const label = text.toUpperCase();
+  const label = String(text); // keep mixed case, like "Finale Oct 6"
 
   ctx.save();
-  ctx.font = '50px "BebasNeue"';
-  try { ctx.letterSpacing = '1.5px'; } catch (_) {}
-  const textWidth = ctx.measureText(label).width;
+  ctx.font = '600 38px "Inter"';
+  const textW = ctx.measureText(label).width;
 
-  const pillW = Math.min(W - 40, Math.max(textWidth + 64, 220));
-  const pillH = 66;
-  const x = (W - pillW) / 2;
+  const pillW = Math.min(W - 60, Math.max(textW + 72, 230));
+  const pillH = 74;
+  const x = Math.round((W - pillW) / 2);
   const y = H - pillH;
-  const r = 16;
+  const r = 22;
 
-  // 1. Soft shadow above the tab so it lifts off the poster
-  ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-  ctx.shadowBlur = 24;
-  ctx.shadowOffsetY = -2;
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-  roundedTopRect(ctx, x, y, pillW, pillH, r);
-  ctx.fill();
-  ctx.restore();
-
-  // 2. Real blur: redraw the poster blurred, clipped to the tab shape
+  // 1. Real blur of the poster behind the pill, clipped to the pill shape
+  const { canvas: blurred, sx, sy } = blurRegion(ctx.canvas, x, y, pillW, pillH);
   ctx.save();
   roundedTopRect(ctx, x, y, pillW, pillH, r);
   ctx.clip();
-  ctx.filter = 'blur(14px)';
-  ctx.drawImage(posterImg, -40, -40, W + 80, H + 80); // oversize to avoid transparent edges
-  ctx.filter = 'none';
+  ctx.drawImage(blurred, sx, sy);
 
-  // 3. Dark tint + glass sheen (light at top fading down)
-  ctx.fillStyle = 'rgba(12, 12, 18, 0.55)';
+  // 2. Glass tint: dark base so white text always reads + light sheen on top
+  ctx.fillStyle = 'rgba(20, 20, 24, 0.38)';
   ctx.fillRect(x, y, pillW, pillH);
   const sheen = ctx.createLinearGradient(0, y, 0, y + pillH);
-  sheen.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
-  sheen.addColorStop(1, 'rgba(255, 255, 255, 0.04)');
+  sheen.addColorStop(0, 'rgba(255, 255, 255, 0.20)');
+  sheen.addColorStop(1, 'rgba(255, 255, 255, 0.06)');
   ctx.fillStyle = sheen;
   ctx.fillRect(x, y, pillW, pillH);
   ctx.restore();
 
-  // 4. Rim highlight along the top edge and sides
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-  ctx.lineWidth = 2;
-  roundedTopRect(ctx, x, y + 1, pillW, pillH, r);
+  // 3. Thin glass rim (top + sides)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 1.5;
+  roundedTopRect(ctx, x + 0.75, y + 0.75, pillW - 1.5, pillH, r);
   ctx.stroke();
 
-  // 5. Text
+  // 4. Text
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 2;
-  ctx.fillText(label, W / 2, y + pillH / 2 + 2);
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetY = 1;
+  ctx.fillText(label, W / 2, y + pillH / 2 + 1);
   ctx.restore();
 }
 
@@ -136,8 +148,8 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null) {
     const posterImg = await loadImage(`https://image.tmdb.org/t/p/w780${posterPath}`);
     ctx.drawImage(posterImg, 0, 0, W, H);
 
-    if (rank) drawRank(ctx, rank);        // only passed for the top 10 catalog
-    if (tag) drawTagPill(ctx, posterImg, tag);
+    if (rank) drawRank(ctx, rank);   // only passed for the top 10 catalog
+    if (tag) drawTagPill(ctx, tag);  // drawn last so it blurs the final poster
 
     return canvas.toBuffer('image/jpeg', 90);
   } catch (err) {

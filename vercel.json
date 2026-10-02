@@ -4,7 +4,8 @@
   "builds": [
     {
       "src": "index.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": { "includeFiles": ["*.ttf"] }
     }
   ],
   "routes": [
