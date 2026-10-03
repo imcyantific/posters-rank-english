@@ -12,7 +12,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 20;
+const IMG_VERSION = 21;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -48,7 +48,17 @@ function buildReleaseInfo(details, tmdbType) {
   return `${start}-`;
 }
 
-async function buildMeta(item, index, type, tmdbType, landscape) {
+// Best English title logo from TMDB (most votes first), falling back to any language.
+function pickLogo(details) {
+  const logos = (details.images?.logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg'));
+  const byVotes = (a, b) => (b.vote_average || 0) - (a.vote_average || 0);
+  const en = logos.filter(l => l.iso_639_1 === 'en').sort(byVotes);
+  const any = logos.filter(l => !l.iso_639_1).sort(byVotes);
+  const best = en[0] || any[0];
+  return best ? `https://image.tmdb.org/t/p/w500${best.file_path}` : undefined;
+}
+
+async function buildMeta(item, index, type, tmdbType) {
   let details = item; // fallback if the details call fails
   try {
     details = await fetchDetails(tmdbType, item.id);
@@ -62,14 +72,12 @@ async function buildMeta(item, index, type, tmdbType, landscape) {
   const year = yearOf(details.release_date || details.first_air_date);
 
   const query = `type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}`;
-  const portraitUrl = `${HOST_URL}/render-poster?${query}`;
-  const landscapeUrl = `${HOST_URL}/render-backdrop?${query}`;
   const meta = {
     id: USE_IMDB_IDS && imdbId ? imdbId : `tmdb:${item.id}`,
     type,
     name: item.title || item.name,
-    poster: landscape ? landscapeUrl : portraitUrl,
-    posterShape: landscape ? 'landscape' : 'poster',
+    poster: `${HOST_URL}/render-poster?${query}`,
+    posterShape: 'poster',
     genres,
     // Newer Stremio-style genre list (some apps read this instead of "genres")
     links: genres.map(g => ({ name: g, category: 'Genres', url: `stremio:///search?search=${encodeURIComponent(g)}` })),
@@ -81,10 +89,10 @@ async function buildMeta(item, index, type, tmdbType, landscape) {
   };
 
   // "background" stays the plain TMDB backdrop so hero banners look clean.
-  // Ranked landscape art comes from the "(Landscape)" catalogs via "poster".
   if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/w1280${details.backdrop_path}`;
-  // No "logo" field on purpose: our artwork already has the title logo drawn in,
-  // and Nuvio overlays meta.logo on landscape tiles, which doubled the logo.
+  // The portrait poster has no title drawn on it, so give the hero banner the TMDB logo.
+  const logo = pickLogo(details);
+  if (logo) meta.logo = logo;
   return meta;
 }
 
@@ -97,25 +105,22 @@ app.get('/', (req, res) => {
 app.get('/manifest.json', (req, res) => {
   res.json({
     id: 'com.english.posters.rank',
-    version: '1.1.0',
+    version: '1.2.0',
     name: 'Top 10 Today (English Posters)',
     description: 'Top 10 Movies & TV Shows with original TMDB posters, rank numbers and status tags',
     resources: ['catalog'],
     types: ['movie', 'series'],
     catalogs: [
       { id: 'top10_movies', type: 'movie', name: 'Top 10 Movies Today' },
-      { id: 'top10_series', type: 'series', name: 'Top 10 TV Shows Today' },
-      { id: 'top10_movies_landscape', type: 'movie', name: 'Top 10 Movies Today (Landscape)' },
-      { id: 'top10_series_landscape', type: 'series', name: 'Top 10 TV Shows Today (Landscape)' }
+      { id: 'top10_series', type: 'series', name: 'Top 10 TV Shows Today' }
     ]
   });
 });
 
-// 2. Catalog Endpoint (poster + landscape variants)
+// 2. Catalog Endpoint
 app.get('/catalog/:type/:id.json', async (req, res) => {
   const { type, id } = req.params;
   const tmdbType = type === 'series' ? 'tv' : 'movie';
-  const landscape = id.endsWith('_landscape');
 
   try {
     const response = await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
@@ -125,7 +130,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
 
     const items = response.data.results.slice(0, 10);
     const metas = await Promise.all(
-      items.map((item, index) => buildMeta(item, index, type, tmdbType, landscape))
+      items.map((item, index) => buildMeta(item, index, type, tmdbType))
     );
 
     res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=600');
