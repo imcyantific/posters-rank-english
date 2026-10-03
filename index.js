@@ -42,6 +42,56 @@ async function fetchDetails(tmdbType, tmdbId) {
   return data;
 }
 
+// ---------- One shared Top 10 list per day ----------
+// TMDB's "trending/day" list changes during the day. If the catalog and the rank
+// numbers each asked TMDB at different times, the ranks came out of order.
+// So we freeze one list per calendar day: it is served from /top10-list/<type>/<day>.json,
+// which Vercel's CDN caches for the day, and both the catalog and the ranks read it.
+const RANK_TZ = process.env.RANK_TZ || 'Pacific/Auckland';
+const dayKey = () => new Date().toLocaleDateString('en-CA', { timeZone: RANK_TZ }); // YYYY-MM-DD
+
+async function fetchTrendingFromTmdb(tmdbType) {
+  const { data } = await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
+    headers: tmdb.headers,
+    params: tmdb.params
+  });
+  return data.results.slice(0, 10);
+}
+
+const dailyCache = {}; // `${tmdbType}:${day}` -> items
+
+async function getDailyTop10(tmdbType) {
+  const key = `${tmdbType}:${dayKey()}`;
+  if (dailyCache[key]) return dailyCache[key];
+  let items;
+  try {
+    // Goes through Vercel's CDN, so every server instance gets the same frozen list
+    const { data } = await axios.get(`${HOST_URL}/top10-list/${tmdbType}/${dayKey()}.json`, { timeout: 8000 });
+    items = data.items;
+  } catch (e) {
+    console.error('Shared top 10 list failed, asking TMDB directly:', e.message);
+    items = await fetchTrendingFromTmdb(tmdbType);
+  }
+  dailyCache[key] = items;
+  return items;
+}
+
+app.get('/top10-list/:type/:day.json', async (req, res) => {
+  const { type, day } = req.params;
+  if ((type !== 'movie' && type !== 'tv') || day !== dayKey()) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(404).json({ items: [] });
+  }
+  try {
+    const items = await fetchTrendingFromTmdb(type);
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=86400');
+    res.json({ day, items });
+  } catch (err) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(500).json({ items: [] });
+  }
+});
+
 // ---------- Metadata for the hero banner (type • genre • year) ----------
 function yearOf(dateStr) {
   return dateStr ? String(dateStr).slice(0, 4) : '';
@@ -141,12 +191,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
   const tmdbType = type === 'series' ? 'tv' : 'movie';
 
   try {
-    const response = await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
-      headers: tmdb.headers,
-      params: tmdb.params
-    });
-
-    const items = response.data.results.slice(0, 10);
+    const items = await getDailyTop10(tmdbType);
     const metas = await Promise.all(
       items.map((item, index) => buildMeta(item, index, type, tmdbType))
     );
@@ -235,19 +280,9 @@ app.get('/poster/:id.jpg', async (req, res) => {
 
 // ---------- Top 10 artwork provider (for Xperience / Nuvio "custom poster URL") ----------
 // Nuvio/Xperience ask for art by title id, so we work out the rank ourselves
-// by checking where that title sits in today's trending list.
-const top10Cache = {}; // tmdbType -> { at, ids }
-
+// by checking where that title sits in today's shared Top 10 list (same one the catalog uses).
 async function getTop10Ids(tmdbType) {
-  const hit = top10Cache[tmdbType];
-  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.ids;
-  const { data } = await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
-    headers: tmdb.headers,
-    params: tmdb.params
-  });
-  const ids = data.results.slice(0, 10).map(i => i.id);
-  top10Cache[tmdbType] = { at: Date.now(), ids };
-  return ids;
+  return (await getDailyTop10(tmdbType)).map(i => i.id);
 }
 
 function typeFromHint(hint) {
