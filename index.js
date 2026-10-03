@@ -12,19 +12,21 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 22;
+const IMG_VERSION = 23;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
 const USE_IMDB_IDS = true;
 
-// Set META_LOGO=off in Vercel to stop sending the "logo" field. Some apps draw their
-// own backdrop+logo tile whenever a logo exists and then ignore the custom poster URL.
-// Nuvio draws landscape tiles from "background". BACKGROUND=ranked makes the catalogs send our
-// rendered landscape art (rank + pill) there, so the Landscape toggle shows ranks.
-// Default "plain" keeps the clean TMDB backdrop for the Hero banner.
-const RANKED_BACKGROUND = String(process.env.BACKGROUND || 'plain').toLowerCase() === 'ranked';
+// CATALOG_ART decides what images the Top 10 catalogs send:
+//   plain  (default) -> normal TMDB poster + backdrop, like Xperience's own catalogs.
+//                       Xperience's Custom URL provider then swaps in our /top10/... art
+//                       (with ranks=all) in both Portrait and Landscape.
+//   ranked           -> our own rendered art (rank + pill) baked into the catalog.
+//                       Use this in apps that have no Custom URL provider (e.g. Stremio).
+const RANKED_ART = String(process.env.CATALOG_ART || 'plain').toLowerCase() === 'ranked';
 
+// Set META_LOGO=off in Vercel to stop sending the "logo" field.
 const SEND_LOGO = String(process.env.META_LOGO || 'on').toLowerCase() !== 'off';
 
 const tmdb = {
@@ -85,7 +87,9 @@ async function buildMeta(item, index, type, tmdbType) {
     id: USE_IMDB_IDS && imdbId ? imdbId : `tmdb:${item.id}`,
     type,
     name: item.title || item.name,
-    poster: `${HOST_URL}/render-poster?${query}`,
+    poster: RANKED_ART || !details.poster_path
+      ? `${HOST_URL}/render-poster?${query}`
+      : `https://image.tmdb.org/t/p/w780${details.poster_path}`,
     posterShape: 'poster',
     genres,
     genre: genres, // older Stremio field; some apps (Nuvio hero) read this one
@@ -98,10 +102,10 @@ async function buildMeta(item, index, type, tmdbType) {
     imdbRating: item.vote_average ? item.vote_average.toFixed(1) : undefined
   };
 
-  // "background" stays the plain TMDB backdrop so hero banners look clean.
-  if (RANKED_BACKGROUND) meta.background = `${HOST_URL}/render-backdrop?${query}`;
+  // Plain mode: clean TMDB backdrop, so hero banners look clean and Xperience can override it.
+  if (RANKED_ART) meta.background = `${HOST_URL}/render-backdrop?${query}`;
   else if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
-  // The portrait poster has no title drawn on it, so give the hero banner the TMDB logo.
+  // TMDB title logo for the hero banner.
   const logo = pickLogo(details);
   if (SEND_LOGO && logo) meta.logo = logo;
   return meta;
