@@ -86,6 +86,9 @@ async function buildMeta(item, index, type, tmdbType) {
   const meta = {
     id: USE_IMDB_IDS && imdbId ? imdbId : `tmdb:${item.id}`,
     type,
+    // Separate ids like Cinemeta sends, so apps can fill {imdb_id} / {tmdb_id} in custom poster URLs
+    imdb_id: imdbId || undefined,
+    moviedb_id: item.id,
     name: item.title || item.name,
     poster: RANKED_ART || !details.poster_path
       ? `${HOST_URL}/render-poster?${query}`
