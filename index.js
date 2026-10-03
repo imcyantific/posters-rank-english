@@ -80,10 +80,9 @@ async function buildMeta(item, index, type, tmdbType, landscape) {
     imdbRating: item.vote_average ? item.vote_average.toFixed(1) : undefined
   };
 
-  // Apps draw PORTRAIT tiles from "poster" and LANDSCAPE tiles from "background",
-  // so both carry the ranked artwork. That way the row can switch shape freely
-  // while Poster art is set to "Original".
-  meta.background = landscapeUrl;
+  // "background" stays the plain TMDB backdrop so hero banners look clean.
+  // Ranked landscape art comes from the "(Landscape)" catalogs via "poster".
+  if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/w1280${details.backdrop_path}`;
   // No "logo" field on purpose: our artwork already has the title logo drawn in,
   // and Nuvio overlays meta.logo on landscape tiles, which doubled the logo.
   return meta;
