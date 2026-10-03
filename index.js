@@ -277,8 +277,9 @@ async function resolveTitle(rawId, typeHint) {
 }
 
 // URL to paste in Xperience (row -> Poster art: Providers -> custom URL):
-//   https://YOUR-APP.vercel.app/top10/{shape}/{id}.jpg?type={type}
-// {shape} = landscape -> wide image with rank + logo + pill; anything else -> tall poster.
+//   https://YOUR-APP.vercel.app/top10/{shape}/{imdb_id}.jpg?type={type}
+// {shape} = landscape -> wide image with rank (if top 10) + logo + pill;
+// anything else -> tall poster with the pill only.
 app.get('/top10/:shape/:id.jpg', async (req, res) => {
   try {
     const { shape, id } = req.params;
@@ -288,10 +289,13 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     const { tmdbId, type } = resolved;
     const [details, top10] = await Promise.all([fetchDetails(type, tmdbId), getTop10Ids(type)]);
     const tag = determineTag(details, type);
-    const pos = top10.indexOf(Number(tmdbId));
-    const rank = pos >= 0 ? pos + 1 : null; // only titles in today's top 10 get a number
-
     const landscape = String(shape).toLowerCase() === 'landscape';
+    // Rank numbers only on landscape art, and only for titles in today's top 10.
+    // Tall posters from this URL stay "pill only", like the /poster/ route, so
+    // your other rows keep their current look.
+    const pos = top10.indexOf(Number(tmdbId));
+    const rank = landscape && pos >= 0 ? pos + 1 : null;
+
     const buffer = landscape
       ? await generateBackdrop(tmdbId, type, rank, tag)
       : await generatePoster(tmdbId, type, rank, tag);
