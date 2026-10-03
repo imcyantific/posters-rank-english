@@ -216,6 +216,22 @@ app.get('/poster/:id.jpg', async (req, res) => {
 });
 
 // ---------- Top 10 artwork provider (for Xperience / Nuvio "custom poster URL") ----------
+// Nuvio/Xperience ask for art by title id, so we work out the rank ourselves
+// by checking where that title sits in today's trending list.
+const top10Cache = {}; // tmdbType -> { at, ids }
+
+async function getTop10Ids(tmdbType) {
+  const hit = top10Cache[tmdbType];
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.ids;
+  const { data } = await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
+    headers: tmdb.headers,
+    params: tmdb.params
+  });
+  const ids = data.results.slice(0, 10).map(i => i.id);
+  top10Cache[tmdbType] = { at: Date.now(), ids };
+  return ids;
+}
+
 function typeFromHint(hint) {
   const h = String(hint || '').toLowerCase();
   if (h === 'series' || h === 'tv' || h === 'show') return 'tv';
@@ -262,11 +278,12 @@ async function resolveTitle(rawId, typeHint, tmdbHint) {
 }
 
 // URL to paste in Xperience (Setup -> Custom URL):
-//   https://YOUR-APP.vercel.app/top10/{shape}/{imdb_id}.jpg?type={type}&tmdb={tmdb_id}
+//   https://YOUR-APP.vercel.app/top10/{shape}/{imdb_id}.jpg?type={type}&tmdb={tmdb_id}&ranks=all
 //
-// Used by every row set to "Providers". It never draws rank numbers;
-// ranks only come from the Top 10 catalogs themselves ("Original").
 // {shape}  landscape -> wide image (logo + pill), anything else -> tall poster (pill)
+// ranks    all       -> rank number on titles in today's top 10, in EVERY shape
+//          landscape -> rank number on landscape only (default)
+//          none      -> never draw rank numbers
 // debug=1  shows the real error text instead of a blank image
 app.get('/top10/:shape/:id.jpg', async (req, res) => {
   const started = Date.now();
@@ -277,19 +294,24 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     if (!resolved) throw new Error(`Could not find "${id}" on TMDB`);
 
     const { tmdbId, type } = resolved;
-    const details = await fetchDetails(type, tmdbId);
+    const [details, top10] = await Promise.all([fetchDetails(type, tmdbId), getTop10Ids(type)]);
     const tag = determineTag(details, type);
 
     const landscape = String(shape).toLowerCase() === 'landscape';
+    const ranks = String(req.query.ranks || 'landscape').toLowerCase();
+    const pos = top10.indexOf(Number(tmdbId));
+    const wantRank = ranks === 'all' || (ranks === 'landscape' && landscape);
+    const rank = wantRank && pos >= 0 ? pos + 1 : null;
+
     const buffer = landscape
-      ? await generateBackdrop(tmdbId, type, null, tag, { throwErrors: debug })
-      : await generatePoster(tmdbId, type, null, tag);
+      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug })
+      : await generatePoster(tmdbId, type, rank, tag);
     if (!buffer) throw new Error('Image generation failed');
 
     if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));
-    sendImage(res, buffer, debug ? 0 : 86400);
+    sendImage(res, buffer, debug ? 0 : 3600); // 1 hour, because ranks change daily
   } catch (err) {
-    console.error('Provider art error:', err.message);
+    console.error('Top10 art error:', err.message);
     res.setHeader('Cache-Control', 'no-store');
     if (debug) {
       return res.status(500).type('text/plain')
