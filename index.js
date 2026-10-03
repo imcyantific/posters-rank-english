@@ -12,7 +12,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 18;
+const IMG_VERSION = 19;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -69,11 +69,12 @@ async function buildMeta(item, index, type, tmdbType, landscape) {
   const year = yearOf(details.release_date || details.first_air_date);
 
   const endpoint = landscape ? 'render-backdrop' : 'render-poster';
+  const imageUrl = `${HOST_URL}/${endpoint}?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}`;
   const meta = {
     id: USE_IMDB_IDS && imdbId ? imdbId : `tmdb:${item.id}`,
     type,
     name: item.title || item.name,
-    poster: `${HOST_URL}/${endpoint}?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}`,
+    poster: imageUrl,
     posterShape: landscape ? 'landscape' : 'poster',
     genres,
     // Newer Stremio-style genre list (some apps read this instead of "genres")
@@ -85,7 +86,11 @@ async function buildMeta(item, index, type, tmdbType, landscape) {
     imdbRating: item.vote_average ? item.vote_average.toFixed(1) : undefined
   };
 
-  if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/w1280${details.backdrop_path}`;
+  // Landscape cards in Nuvio are drawn from "background", not "poster", so in the
+  // landscape catalogs point background at our rendered image (rank + logo + pill).
+  // In the normal catalogs, background stays the plain TMDB backdrop for the hero banner.
+  if (landscape) meta.background = imageUrl;
+  else if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/w1280${details.backdrop_path}`;
   const logo = pickLogo(details);
   if (logo) meta.logo = logo;
   return meta;
