@@ -12,7 +12,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 19;
+const IMG_VERSION = 20;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -68,13 +68,14 @@ async function buildMeta(item, index, type, tmdbType, landscape) {
   const genres = (details.genres || []).map(g => g.name);
   const year = yearOf(details.release_date || details.first_air_date);
 
-  const endpoint = landscape ? 'render-backdrop' : 'render-poster';
-  const imageUrl = `${HOST_URL}/${endpoint}?type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}`;
+  const query = `type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}`;
+  const portraitUrl = `${HOST_URL}/render-poster?${query}`;
+  const landscapeUrl = `${HOST_URL}/render-backdrop?${query}`;
   const meta = {
     id: USE_IMDB_IDS && imdbId ? imdbId : `tmdb:${item.id}`,
     type,
     name: item.title || item.name,
-    poster: imageUrl,
+    poster: landscape ? landscapeUrl : portraitUrl,
     posterShape: landscape ? 'landscape' : 'poster',
     genres,
     // Newer Stremio-style genre list (some apps read this instead of "genres")
@@ -86,11 +87,10 @@ async function buildMeta(item, index, type, tmdbType, landscape) {
     imdbRating: item.vote_average ? item.vote_average.toFixed(1) : undefined
   };
 
-  // Landscape cards in Nuvio are drawn from "background", not "poster", so in the
-  // landscape catalogs point background at our rendered image (rank + logo + pill).
-  // In the normal catalogs, background stays the plain TMDB backdrop for the hero banner.
-  if (landscape) meta.background = imageUrl;
-  else if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/w1280${details.backdrop_path}`;
+  // Apps draw PORTRAIT tiles from "poster" and LANDSCAPE tiles from "background",
+  // so both carry the ranked artwork. That way the row can switch shape freely
+  // while Poster art is set to "Original".
+  meta.background = landscapeUrl;
   const logo = pickLogo(details);
   if (logo) meta.logo = logo;
   return meta;
@@ -219,22 +219,6 @@ app.get('/poster/:id.jpg', async (req, res) => {
 });
 
 // ---------- Top 10 artwork provider (for Xperience / Nuvio "custom poster URL") ----------
-// Nuvio/Xperience ask for art by title id, so we work out the rank ourselves
-// by checking where that title sits in today's trending list.
-const top10Cache = {}; // tmdbType -> { at, ids }
-
-async function getTop10Ids(tmdbType) {
-  const hit = top10Cache[tmdbType];
-  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.ids;
-  const { data } = await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
-    headers: tmdb.headers,
-    params: tmdb.params
-  });
-  const ids = data.results.slice(0, 10).map(i => i.id);
-  top10Cache[tmdbType] = { at: Date.now(), ids };
-  return ids;
-}
-
 function typeFromHint(hint) {
   const h = String(hint || '').toLowerCase();
   if (h === 'series' || h === 'tv' || h === 'show') return 'tv';
@@ -281,12 +265,11 @@ async function resolveTitle(rawId, typeHint, tmdbHint) {
 }
 
 // URL to paste in Xperience (Setup -> Custom URL):
-//   https://YOUR-APP.vercel.app/top10/{shape}/{imdb_id}.jpg?type={type}&tmdb={tmdb_id}&ranks=all
+//   https://YOUR-APP.vercel.app/top10/{shape}/{imdb_id}.jpg?type={type}&tmdb={tmdb_id}
 //
+// Used by every row set to "Providers". It never draws rank numbers;
+// ranks only come from the Top 10 catalogs themselves ("Original").
 // {shape}  landscape -> wide image (logo + pill), anything else -> tall poster (pill)
-// ranks    all       -> rank number on titles in today's top 10, in EVERY shape
-//          landscape -> rank number on landscape only (default)
-//          none      -> never draw rank numbers
 // debug=1  shows the real error text instead of a blank image
 app.get('/top10/:shape/:id.jpg', async (req, res) => {
   const started = Date.now();
@@ -297,24 +280,19 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     if (!resolved) throw new Error(`Could not find "${id}" on TMDB`);
 
     const { tmdbId, type } = resolved;
-    const [details, top10] = await Promise.all([fetchDetails(type, tmdbId), getTop10Ids(type)]);
+    const details = await fetchDetails(type, tmdbId);
     const tag = determineTag(details, type);
 
     const landscape = String(shape).toLowerCase() === 'landscape';
-    const ranks = String(req.query.ranks || 'landscape').toLowerCase();
-    const pos = top10.indexOf(Number(tmdbId));
-    const wantRank = ranks === 'all' || (ranks === 'landscape' && landscape);
-    const rank = wantRank && pos >= 0 ? pos + 1 : null;
-
     const buffer = landscape
-      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug })
-      : await generatePoster(tmdbId, type, rank, tag);
+      ? await generateBackdrop(tmdbId, type, null, tag, { throwErrors: debug })
+      : await generatePoster(tmdbId, type, null, tag);
     if (!buffer) throw new Error('Image generation failed');
 
     if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));
-    sendImage(res, buffer, debug ? 0 : 3600); // 1 hour, because ranks change daily
+    sendImage(res, buffer, debug ? 0 : 86400);
   } catch (err) {
-    console.error('Top10 art error:', err.message);
+    console.error('Provider art error:', err.message);
     res.setHeader('Cache-Control', 'no-store');
     if (debug) {
       return res.status(500).type('text/plain')
