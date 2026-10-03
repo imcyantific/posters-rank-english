@@ -12,7 +12,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 21;
+const IMG_VERSION = 22;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -20,6 +20,11 @@ const USE_IMDB_IDS = true;
 
 // Set META_LOGO=off in Vercel to stop sending the "logo" field. Some apps draw their
 // own backdrop+logo tile whenever a logo exists and then ignore the custom poster URL.
+// Nuvio draws landscape tiles from "background". BACKGROUND=ranked makes the catalogs send our
+// rendered landscape art (rank + pill) there, so the Landscape toggle shows ranks.
+// Default "plain" keeps the clean TMDB backdrop for the Hero banner.
+const RANKED_BACKGROUND = String(process.env.BACKGROUND || 'plain').toLowerCase() === 'ranked';
+
 const SEND_LOGO = String(process.env.META_LOGO || 'on').toLowerCase() !== 'off';
 
 const tmdb = {
@@ -93,7 +98,8 @@ async function buildMeta(item, index, type, tmdbType) {
   };
 
   // "background" stays the plain TMDB backdrop so hero banners look clean.
-  if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/w1280${details.backdrop_path}`;
+  if (RANKED_BACKGROUND) meta.background = `${HOST_URL}/render-backdrop?${query}`;
+  else if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
   // The portrait poster has no title drawn on it, so give the hero banner the TMDB logo.
   const logo = pickLogo(details);
   if (SEND_LOGO && logo) meta.logo = logo;
