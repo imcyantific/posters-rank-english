@@ -18,6 +18,10 @@ const IMG_VERSION = 21;
 // false = always use tmdb:<id>.
 const USE_IMDB_IDS = true;
 
+// Set META_LOGO=off in Vercel to stop sending the "logo" field. Some apps draw their
+// own backdrop+logo tile whenever a logo exists and then ignore the custom poster URL.
+const SEND_LOGO = String(process.env.META_LOGO || 'on').toLowerCase() !== 'off';
+
 const tmdb = {
   headers: TMDB_API_KEY.startsWith('ey') ? { Authorization: `Bearer ${TMDB_API_KEY}` } : {},
   params: TMDB_API_KEY.startsWith('ey') ? {} : { api_key: TMDB_API_KEY }
@@ -92,7 +96,7 @@ async function buildMeta(item, index, type, tmdbType) {
   if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/w1280${details.backdrop_path}`;
   // The portrait poster has no title drawn on it, so give the hero banner the TMDB logo.
   const logo = pickLogo(details);
-  if (logo) meta.logo = logo;
+  if (SEND_LOGO && logo) meta.logo = logo;
   return meta;
 }
 
