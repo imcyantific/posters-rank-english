@@ -243,9 +243,13 @@ function typeFromHint(hint) {
 }
 
 // Accepts tt1234567, tt1234567:1:2 (episode), tmdb:123, or a plain number.
-async function resolveTitle(rawId, typeHint) {
+async function resolveTitle(rawId, typeHint, tmdbHint) {
   let id = String(rawId).trim();
   const hinted = typeFromHint(typeHint);
+
+  // Fastest and most reliable: the app already told us the TMDB id
+  const t = String(tmdbHint || '').replace(/^tmdb:/, '');
+  if (/^\d+$/.test(t) && hinted) return { tmdbId: t, type: hinted };
 
   if (id.startsWith('tmdb:')) id = id.slice(5);
 
@@ -276,34 +280,46 @@ async function resolveTitle(rawId, typeHint) {
   return null;
 }
 
-// URL to paste in Xperience (row -> Poster art: Providers -> custom URL):
-//   https://YOUR-APP.vercel.app/top10/{shape}/{imdb_id}.jpg?type={type}
-// {shape} = landscape -> wide image with rank (if top 10) + logo + pill;
-// anything else -> tall poster with the pill only.
+// URL to paste in Xperience (Setup -> Custom URL):
+//   https://YOUR-APP.vercel.app/top10/{shape}/{imdb_id}.jpg?type={type}&tmdb={tmdb_id}&ranks=all
+//
+// {shape}  landscape -> wide image (logo + pill), anything else -> tall poster (pill)
+// ranks    all       -> rank number on titles in today's top 10, in EVERY shape
+//          landscape -> rank number on landscape only (default)
+//          none      -> never draw rank numbers
+// debug=1  shows the real error text instead of a blank image
 app.get('/top10/:shape/:id.jpg', async (req, res) => {
+  const started = Date.now();
+  const debug = !!req.query.debug;
   try {
     const { shape, id } = req.params;
-    const resolved = await resolveTitle(id, req.query.type);
-    if (!resolved) return res.status(404).send('Title not found');
+    const resolved = await resolveTitle(id, req.query.type, req.query.tmdb);
+    if (!resolved) throw new Error(`Could not find "${id}" on TMDB`);
 
     const { tmdbId, type } = resolved;
     const [details, top10] = await Promise.all([fetchDetails(type, tmdbId), getTop10Ids(type)]);
     const tag = determineTag(details, type);
+
     const landscape = String(shape).toLowerCase() === 'landscape';
-    // Rank numbers only on landscape art, and only for titles in today's top 10.
-    // Tall posters from this URL stay "pill only", like the /poster/ route, so
-    // your other rows keep their current look.
+    const ranks = String(req.query.ranks || 'landscape').toLowerCase();
     const pos = top10.indexOf(Number(tmdbId));
-    const rank = landscape && pos >= 0 ? pos + 1 : null;
+    const wantRank = ranks === 'all' || (ranks === 'landscape' && landscape);
+    const rank = wantRank && pos >= 0 ? pos + 1 : null;
 
     const buffer = landscape
-      ? await generateBackdrop(tmdbId, type, rank, tag)
+      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug })
       : await generatePoster(tmdbId, type, rank, tag);
+    if (!buffer) throw new Error('Image generation failed');
 
-    sendImage(res, buffer, 3600); // 1 hour, because ranks change daily
+    if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));
+    sendImage(res, buffer, debug ? 0 : 3600); // 1 hour, because ranks change daily
   } catch (err) {
     console.error('Top10 art error:', err.message);
     res.setHeader('Cache-Control', 'no-store');
+    if (debug) {
+      return res.status(500).type('text/plain')
+        .send(`Failed after ${Date.now() - started} ms\n\n${err.stack || err.message}`);
+    }
     res.status(500).send('Server Error');
   }
 });
