@@ -227,7 +227,7 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null) {
   }
 }
 
-async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null) {
+async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
     const { backdropPath, logoPath } = await getBackdropAssets(type, tmdbId);
     if (!backdropPath) throw new Error('Backdrop not found');
@@ -241,6 +241,7 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null)
     return composeBackdrop(backdropImg, logoImg, rank, tag).toBuffer('image/jpeg', 90);
   } catch (err) {
     console.error('Error generating backdrop:', err.message);
+    if (opts.throwErrors) throw err;   // used by ?debug=1 so you can see the real error
     return null;
   }
 }

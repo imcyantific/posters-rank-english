@@ -144,10 +144,10 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
   }
 });
 
-function sendImage(res, buffer) {
+function sendImage(res, buffer, maxAge = 86400) {
   if (buffer) {
     res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
     res.send(buffer);
   } else {
     res.setHeader('Cache-Control', 'no-store'); // never let apps cache a failure
@@ -163,7 +163,21 @@ app.get('/render-poster', async (req, res) => {
 
 // 4. Dynamic Backdrop Rendering Route (wide)
 app.get('/render-backdrop', async (req, res) => {
-  const { tmdbId, type, rank, tag } = req.query;
+  const { tmdbId, type, rank, tag, debug } = req.query;
+  if (debug) {
+    // Open the URL with &debug=1 to see the real error text instead of a blank 404
+    const started = Date.now();
+    try {
+      const buf = await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: true });
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Render-Ms', String(Date.now() - started));
+      res.setHeader('Content-Type', 'image/jpeg');
+      return res.send(buf);
+    } catch (err) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(500).type('text/plain').send(`Backdrop failed after ${Date.now() - started} ms\n\n${err.stack || err.message}`);
+    }
+  }
   sendImage(res, await generateBackdrop(tmdbId, type, rank, tag));
 });
 
@@ -200,6 +214,92 @@ app.get('/poster/:id.jpg', async (req, res) => {
     sendImage(res, await generatePoster(tmdbId, type, null, tag));
   } catch (err) {
     console.error('Poster Provider Error:', err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+// ---------- Top 10 artwork provider (for Xperience / Nuvio "custom poster URL") ----------
+// Nuvio/Xperience ask for art by title id, so we work out the rank ourselves
+// by checking where that title sits in today's trending list.
+const top10Cache = {}; // tmdbType -> { at, ids }
+
+async function getTop10Ids(tmdbType) {
+  const hit = top10Cache[tmdbType];
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.ids;
+  const { data } = await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
+    headers: tmdb.headers,
+    params: tmdb.params
+  });
+  const ids = data.results.slice(0, 10).map(i => i.id);
+  top10Cache[tmdbType] = { at: Date.now(), ids };
+  return ids;
+}
+
+function typeFromHint(hint) {
+  const h = String(hint || '').toLowerCase();
+  if (h === 'series' || h === 'tv' || h === 'show') return 'tv';
+  if (h === 'movie' || h === 'film') return 'movie';
+  return null;
+}
+
+// Accepts tt1234567, tt1234567:1:2 (episode), tmdb:123, or a plain number.
+async function resolveTitle(rawId, typeHint) {
+  let id = String(rawId).trim();
+  const hinted = typeFromHint(typeHint);
+
+  if (id.startsWith('tmdb:')) id = id.slice(5);
+
+  if (id.startsWith('tt')) {
+    id = id.split(':')[0];
+    const { data } = await axios.get(`https://api.themoviedb.org/3/find/${id}`, {
+      headers: tmdb.headers,
+      params: { ...tmdb.params, external_source: 'imdb_id' }
+    });
+    const movie = data.movie_results?.[0];
+    const tv = data.tv_results?.[0];
+    if (hinted === 'tv' && tv) return { tmdbId: tv.id, type: 'tv' };
+    if (hinted === 'movie' && movie) return { tmdbId: movie.id, type: 'movie' };
+    if (movie) return { tmdbId: movie.id, type: 'movie' };
+    if (tv) return { tmdbId: tv.id, type: 'tv' };
+    return null;
+  }
+
+  if (/^\d+$/.test(id)) {
+    const order = hinted ? [hinted] : ['movie', 'tv'];
+    for (const type of order) {
+      try {
+        await axios.get(`https://api.themoviedb.org/3/${type}/${id}`, { headers: tmdb.headers, params: tmdb.params });
+        return { tmdbId: id, type };
+      } catch (e) { /* try the next type */ }
+    }
+  }
+  return null;
+}
+
+// URL to paste in Xperience (row -> Poster art: Providers -> custom URL):
+//   https://YOUR-APP.vercel.app/top10/{shape}/{id}.jpg?type={type}
+// {shape} = landscape -> wide image with rank + logo + pill; anything else -> tall poster.
+app.get('/top10/:shape/:id.jpg', async (req, res) => {
+  try {
+    const { shape, id } = req.params;
+    const resolved = await resolveTitle(id, req.query.type);
+    if (!resolved) return res.status(404).send('Title not found');
+
+    const { tmdbId, type } = resolved;
+    const [details, top10] = await Promise.all([fetchDetails(type, tmdbId), getTop10Ids(type)]);
+    const tag = determineTag(details, type);
+    const pos = top10.indexOf(Number(tmdbId));
+    const rank = pos >= 0 ? pos + 1 : null; // only titles in today's top 10 get a number
+
+    const landscape = String(shape).toLowerCase() === 'landscape';
+    const buffer = landscape
+      ? await generateBackdrop(tmdbId, type, rank, tag)
+      : await generatePoster(tmdbId, type, rank, tag);
+
+    sendImage(res, buffer, 3600); // 1 hour, because ranks change daily
+  } catch (err) {
+    console.error('Top10 art error:', err.message);
+    res.setHeader('Cache-Control', 'no-store');
     res.status(500).send('Server Error');
   }
 });
