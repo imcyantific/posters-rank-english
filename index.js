@@ -88,6 +88,7 @@ async function buildMeta(item, index, type, tmdbType) {
     poster: `${HOST_URL}/render-poster?${query}`,
     posterShape: 'poster',
     genres,
+    genre: genres, // older Stremio field; some apps (Nuvio hero) read this one
     // Newer Stremio-style genre list (some apps read this instead of "genres")
     links: genres.map(g => ({ name: g, category: 'Genres', url: `stremio:///search?search=${encodeURIComponent(g)}` })),
     releaseInfo: buildReleaseInfo(details, tmdbType),
