@@ -48,13 +48,6 @@ function buildReleaseInfo(details, tmdbType) {
   return `${start}-`;
 }
 
-function pickLogo(details) {
-  const best = (details.images?.logos || [])
-    .filter(l => l.iso_639_1 === 'en' || l.iso_639_1 === null)
-    .sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0))[0];
-  return best ? `https://image.tmdb.org/t/p/w500${best.file_path}` : undefined;
-}
-
 async function buildMeta(item, index, type, tmdbType, landscape) {
   let details = item; // fallback if the details call fails
   try {
@@ -91,8 +84,8 @@ async function buildMeta(item, index, type, tmdbType, landscape) {
   // so both carry the ranked artwork. That way the row can switch shape freely
   // while Poster art is set to "Original".
   meta.background = landscapeUrl;
-  const logo = pickLogo(details);
-  if (logo) meta.logo = logo;
+  // No "logo" field on purpose: our artwork already has the title logo drawn in,
+  // and Nuvio overlays meta.logo on landscape tiles, which doubled the logo.
   return meta;
 }
 
