@@ -8,7 +8,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
   poster:   { S: 1.3, W: 600, H: 900, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
-  backdrop: { S: 2, W: 960, H: 540, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
+  backdrop: { S: 4 / 3, W: 960, H: 540, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
 // Inter SemiBold = pill text. Bebas Neue = rank numbers.
@@ -239,10 +239,8 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
   try {
     const { backdropPath, logoPath } = await getBackdropAssets(type, tmdbId);
     if (!backdropPath) throw new Error('Backdrop not found');
-    // 'original' is sharp enough for the 1920px render; fall back to w1280 if it fails.
-    let backdropImg;
-    try { backdropImg = await loadImage(`https://image.tmdb.org/t/p/original${backdropPath}`); }
-    catch (e) { backdropImg = await loadImage(`https://image.tmdb.org/t/p/w1280${backdropPath}`); }
+    // w1280 matches the 1280x720 render exactly. ('original' can be huge and made renders time out.)
+    const backdropImg = await loadImage(`https://image.tmdb.org/t/p/w1280${backdropPath}`);
 
     let logoImg = null;
     if (logoPath) {
