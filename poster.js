@@ -34,8 +34,9 @@ async function getImages(type, tmdbId) {
 }
 
 // Original TMDB poster: best English one, then textless, then any, then default.
-async function getPosterPath(type, tmdbId) {
-  const data = await getImages(type, tmdbId);
+// `images` can be passed in when we already have them (saves a TMDB call).
+async function getPosterPath(type, tmdbId, images) {
+  const data = images || await getImages(type, tmdbId);
   const posters = data.posters || [];
   const english = posters.filter(p => p.iso_639_1 === 'en').sort(byVotes);
   const textless = posters.filter(p => p.iso_639_1 === null).sort(byVotes);
@@ -49,8 +50,8 @@ async function getPosterPath(type, tmdbId) {
 // Backdrop: if the title has an English logo, use a textless backdrop and draw
 // the logo on top (looks like a landscape poster). Otherwise use a backdrop
 // that already has text, then any backdrop.
-async function getBackdropAssets(type, tmdbId) {
-  const data = await getImages(type, tmdbId);
+async function getBackdropAssets(type, tmdbId, images) {
+  const data = images || await getImages(type, tmdbId);
   const backdrops = data.backdrops || [];
   const logos = (data.logos || []).filter(l => l.iso_639_1 === 'en').sort(byVotes);
   const textless = backdrops.filter(b => b.iso_639_1 === null).sort(byVotes);
@@ -223,12 +224,12 @@ function composeBackdrop(backdropImg, logoImg, rank, tag) {
   return canvas;
 }
 
-async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null) {
+async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
-    const posterPath = await getPosterPath(type, tmdbId);
+    const posterPath = await getPosterPath(type, tmdbId, opts.images);
     if (!posterPath) throw new Error('Poster not found');
     const posterImg = await loadImage(`https://image.tmdb.org/t/p/w780${posterPath}`);
-    return composePoster(posterImg, rank, tag).toBuffer('image/jpeg', 92);
+    return composePoster(posterImg, rank, tag).toBuffer('image/jpeg', 85);
   } catch (err) {
     console.error('Error generating poster:', err.message);
     return null;
@@ -237,17 +238,18 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null) {
 
 async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
-    const { backdropPath, logoPath } = await getBackdropAssets(type, tmdbId);
+    const { backdropPath, logoPath } = await getBackdropAssets(type, tmdbId, opts.images);
     if (!backdropPath) throw new Error('Backdrop not found');
+    // Download backdrop and logo at the same time.
     // w1280 matches the 1280x720 render exactly. ('original' can be huge and made renders time out.)
-    const backdropImg = await loadImage(`https://image.tmdb.org/t/p/w1280${backdropPath}`);
-
-    let logoImg = null;
-    if (logoPath) {
-      try { logoImg = await loadImage(`https://image.tmdb.org/t/p/w500${logoPath}`); }
-      catch (e) { console.error('Logo load failed:', e.message); }
-    }
-    return composeBackdrop(backdropImg, logoImg, rank, tag).toBuffer('image/jpeg', 92);
+    const [backdropImg, logoImg] = await Promise.all([
+      loadImage(`https://image.tmdb.org/t/p/w1280${backdropPath}`),
+      logoPath
+        ? loadImage(`https://image.tmdb.org/t/p/w500${logoPath}`)
+            .catch(e => { console.error('Logo load failed:', e.message); return null; })
+        : null
+    ]);
+    return composeBackdrop(backdropImg, logoImg, rank, tag).toBuffer('image/jpeg', 85);
   } catch (err) {
     console.error('Error generating backdrop:', err.message);
     if (opts.throwErrors) throw err;   // used by ?debug=1 so you can see the real error
