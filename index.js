@@ -50,6 +50,15 @@ async function fetchDetails(tmdbType, tmdbId) {
 const RANK_TZ = process.env.RANK_TZ || 'Pacific/Auckland';
 const dayKey = () => new Date().toLocaleDateString('en-CA', { timeZone: RANK_TZ }); // YYYY-MM-DD
 
+// Seconds left until the list switches at midnight, so nothing is cached past the switch.
+function secondsUntilMidnight() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: RANK_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date()).map(p => [p.type, Number(p.value)]));
+  const left = 86400 - (parts.hour * 3600 + parts.minute * 60 + parts.second);
+  return Math.max(60, left);
+}
+
 async function fetchTrendingFromTmdb(tmdbType) {
   const { data } = await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
     headers: tmdb.headers,
@@ -69,8 +78,10 @@ async function getDailyTop10(tmdbType) {
     const { data } = await axios.get(`${HOST_URL}/top10-list/${tmdbType}/${dayKey()}.json`, { timeout: 8000 });
     items = data.items;
   } catch (e) {
+    // Don't keep this copy: other instances may get a different list from TMDB,
+    // so try the shared list again on the next request.
     console.error('Shared top 10 list failed, asking TMDB directly:', e.message);
-    items = await fetchTrendingFromTmdb(tmdbType);
+    return fetchTrendingFromTmdb(tmdbType);
   }
   dailyCache[key] = items;
   return items;
@@ -196,7 +207,8 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
       items.map((item, index) => buildMeta(item, index, type, tmdbType))
     );
 
-    res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=600');
+    // Cache only until midnight, so a re-sync after the switch always gets the new day's list
+    res.setHeader('Cache-Control', `public, s-maxage=${Math.min(3600, secondsUntilMidnight())}`);
     res.json({ metas });
   } catch (err) {
     console.error('Error fetching catalog:', err.message);
@@ -362,7 +374,8 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     if (!buffer) throw new Error('Image generation failed');
 
     if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));
-    sendImage(res, buffer, debug ? 0 : 3600); // 1 hour, because ranks change daily
+    // At most 1 hour, and never past midnight when the ranks switch
+    sendImage(res, buffer, debug ? 0 : Math.min(3600, secondsUntilMidnight()));
   } catch (err) {
     console.error('Top10 art error:', err.message);
     res.setHeader('Cache-Control', 'no-store');
