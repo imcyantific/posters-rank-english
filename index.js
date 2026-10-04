@@ -216,10 +216,12 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
   }
 });
 
-function sendImage(res, buffer, maxAge = 86400) {
+// maxAge = how long the app keeps it; cdnAge = how long Vercel's CDN keeps it
+// (without s-maxage Vercel re-renders the image on every request).
+function sendImage(res, buffer, maxAge = 86400, cdnAge = maxAge) {
   if (buffer) {
     res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
+    res.setHeader('Cache-Control', cdnAge > 0 ? `public, max-age=${maxAge}, s-maxage=${cdnAge}` : 'no-store');
     res.send(buffer);
   } else {
     res.setHeader('Cache-Control', 'no-store'); // never let apps cache a failure
@@ -368,14 +370,17 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     const wantRank = ranks === 'all' || (ranks === 'landscape' && landscape);
     const rank = wantRank && pos >= 0 ? pos + 1 : null;
 
+    // Reuse the images we already got with the details (one less TMDB call)
     const buffer = landscape
-      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug })
-      : await generatePoster(tmdbId, type, rank, tag);
+      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug, images: details.images })
+      : await generatePoster(tmdbId, type, rank, tag, { images: details.images });
     if (!buffer) throw new Error('Image generation failed');
 
     if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));
     // At most 1 hour, and never past midnight when the ranks switch
-    sendImage(res, buffer, debug ? 0 : Math.min(3600, secondsUntilMidnight()));
+    // Vercel's CDN keeps it until midnight (when ranks switch); the app re-checks hourly
+    const untilMidnight = secondsUntilMidnight();
+    sendImage(res, buffer, debug ? 0 : Math.min(3600, untilMidnight), debug ? 0 : untilMidnight);
   } catch (err) {
     console.error('Top10 art error:', err.message);
     res.setHeader('Cache-Control', 'no-store');
