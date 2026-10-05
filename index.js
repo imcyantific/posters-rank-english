@@ -59,12 +59,45 @@ function secondsUntilMidnight() {
   return Math.max(60, left);
 }
 
+// DIGITAL_ONLY=on in Vercel -> the movie Top 10 skips titles without a digital release yet
+// (still only in cinemas). Uses TMDB release type 4 = Digital, already released.
+// DIGITAL_REGION (e.g. NZ or US) limits the check to one country; empty = any country.
+const DIGITAL_ONLY = String(process.env.DIGITAL_ONLY || 'off').toLowerCase() === 'on';
+const DIGITAL_REGION = String(process.env.DIGITAL_REGION || '').toUpperCase();
+
+async function hasDigitalRelease(movieId) {
+  try {
+    const { data } = await axios.get(`https://api.themoviedb.org/3/movie/${movieId}/release_dates`, {
+      headers: tmdb.headers,
+      params: tmdb.params
+    });
+    const now = Date.now();
+    return (data.results || [])
+      .filter(c => !DIGITAL_REGION || c.iso_3166_1 === DIGITAL_REGION)
+      .some(c => (c.release_dates || []).some(r => r.type === 4 && Date.parse(r.release_date) <= now));
+  } catch (e) {
+    console.error(`Release dates failed for ${movieId}:`, e.message);
+    return false;
+  }
+}
+
 async function fetchTrendingFromTmdb(tmdbType) {
-  const { data } = await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
+  const getPage = async page => (await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
     headers: tmdb.headers,
-    params: tmdb.params
-  });
-  return data.results.slice(0, 10);
+    params: { ...tmdb.params, page }
+  })).data.results || [];
+
+  if (!(DIGITAL_ONLY && tmdbType === 'movie')) return (await getPage(1)).slice(0, 10);
+
+  // Walk down the trending list (up to 5 pages = 100 titles), keeping trending order
+  const picked = [];
+  for (let page = 1; page <= 5 && picked.length < 10; page++) {
+    const results = await getPage(page);
+    if (!results.length) break;
+    const ok = await Promise.all(results.map(m => hasDigitalRelease(m.id)));
+    results.forEach((m, i) => { if (ok[i] && picked.length < 10) picked.push(m); });
+  }
+  return picked;
 }
 
 const dailyCache = {}; // `${tmdbType}:${day}` -> items
