@@ -209,7 +209,10 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
 
     // Cache only until midnight, so a re-sync after the switch always gets the new day's list
     res.setHeader('Cache-Control', `public, s-maxage=${Math.min(3600, secondsUntilMidnight())}`);
-    res.json({ metas });
+    // cacheMaxAge tells apps how long to keep this list. Xperience re-syncs imported
+    // catalogs on this value (minimum 1 hour), so the row picks up the new day's list
+    // within an hour of midnight without a manual Re-sync.
+    res.json({ metas, cacheMaxAge: 3600 });
   } catch (err) {
     console.error('Error fetching catalog:', err.message);
     res.status(500).json({ metas: [] });
