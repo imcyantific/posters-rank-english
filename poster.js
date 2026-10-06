@@ -8,7 +8,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
   poster:   { S: 1.3, W: 600, H: 900, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
-  backdrop: { S: 4 / 3, W: 960, H: 540, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
+  backdrop: { S: 2, W: 960, H: 540, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
 // Inter SemiBold = pill text. Bebas Neue = rank numbers.
@@ -231,12 +231,25 @@ function composeBackdrop(backdropImg, logoImg, rank, tag) {
   return canvas;
 }
 
+// Download an image with a time limit. If the big version is slow or fails, use the
+// smaller fallback so the render never times out. Vercel caches the finished image
+// until midnight, so this download only happens once per title per day.
+async function loadImageWithFallback(bigUrl, smallUrl, timeoutMs = 5000) {
+  try {
+    const { data } = await axios.get(bigUrl, { responseType: 'arraybuffer', timeout: timeoutMs });
+    return await loadImage(Buffer.from(data));
+  } catch (e) {
+    console.error('Large image slow/failed, using smaller one:', e.message);
+    return loadImage(smallUrl);
+  }
+}
+
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
     const posterPath = await getPosterPath(type, tmdbId, opts.images);
     if (!posterPath) throw new Error('Poster not found');
     const posterImg = await loadImage(`https://image.tmdb.org/t/p/w780${posterPath}`);
-    return composePoster(posterImg, rank, tag).toBuffer('image/jpeg', 85);
+    return composePoster(posterImg, rank, tag).toBuffer('image/jpeg', 90);
   } catch (err) {
     console.error('Error generating poster:', err.message);
     return null;
@@ -248,15 +261,21 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
     const { backdropPath, logoPath } = await getBackdropAssets(type, tmdbId, opts.images);
     if (!backdropPath) throw new Error('Backdrop not found');
     // Download backdrop and logo at the same time.
-    // w1280 matches the 1280x720 render exactly. ('original' can be huge and made renders time out.)
     const [backdropImg, logoImg] = await Promise.all([
-      loadImage(`https://image.tmdb.org/t/p/w1280${backdropPath}`),
+      // Full-size backdrop for a sharp 1920x1080 render; falls back to w1280 if slow.
+      loadImageWithFallback(
+        `https://image.tmdb.org/t/p/original${backdropPath}`,
+        `https://image.tmdb.org/t/p/w1280${backdropPath}`
+      ),
       logoPath
-        ? loadImage(`https://image.tmdb.org/t/p/w500${logoPath}`)
+        ? loadImageWithFallback(
+            `https://image.tmdb.org/t/p/original${logoPath}`,
+            `https://image.tmdb.org/t/p/w500${logoPath}`
+          )
             .catch(e => { console.error('Logo load failed:', e.message); return null; })
         : null
     ]);
-    return composeBackdrop(backdropImg, logoImg, rank, tag).toBuffer('image/jpeg', 85);
+    return composeBackdrop(backdropImg, logoImg, rank, tag).toBuffer('image/jpeg', 90);
   } catch (err) {
     console.error('Error generating backdrop:', err.message);
     if (opts.throwErrors) throw err;   // used by ?debug=1 so you can see the real error
