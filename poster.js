@@ -53,7 +53,14 @@ async function getPosterPath(type, tmdbId, images) {
 async function getBackdropAssets(type, tmdbId, images) {
   const data = images || await getImages(type, tmdbId);
   const backdrops = data.backdrops || [];
-  const logos = (data.logos || []).filter(l => l.iso_639_1 === 'en').sort(byVotes);
+  // Logo preference: English, then language-neutral, then any other (e.g. the original
+  // Japanese logo for anime). Many anime only have a Japanese-tagged logo on TMDB.
+  const allLogos = (data.logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg'));
+  const logos = [
+    ...allLogos.filter(l => l.iso_639_1 === 'en').sort(byVotes),
+    ...allLogos.filter(l => !l.iso_639_1).sort(byVotes),
+    ...allLogos.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(byVotes)
+  ];
   const textless = backdrops.filter(b => b.iso_639_1 === null).sort(byVotes);
   const english = backdrops.filter(b => b.iso_639_1 === 'en').sort(byVotes);
   const any = [...backdrops].sort(byVotes);
