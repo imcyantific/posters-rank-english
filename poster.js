@@ -7,8 +7,8 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
-  poster:   { S: 1.3, W: 600, H: 900, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
-  backdrop: { S: 2, W: 960, H: 540, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
+  poster:   { S: 1.3, W: 600, H: 900, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
+  backdrop: { S: 2, W: 960, H: 540, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
 // Inter SemiBold = pill text. Bebas Neue = rank numbers.
@@ -33,18 +33,39 @@ async function getImages(type, tmdbId) {
   return data;
 }
 
-// Original TMDB poster: best English one, then textless, then any, then default.
+// Logo preference: English, then language-neutral, then any other (e.g. the original
+// Japanese logo for anime). Many anime only have a Japanese-tagged logo on TMDB.
+function rankLogos(logos) {
+  const usable = (logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg'));
+  return [
+    ...usable.filter(l => l.iso_639_1 === 'en').sort(byVotes),
+    ...usable.filter(l => !l.iso_639_1).sort(byVotes),
+    ...usable.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(byVotes)
+  ];
+}
+
+// POSTER_STYLE=logo (default): if the title has a textless poster AND a logo, use the
+// textless poster and draw the logo just above the pill, so the rank number in the
+// corner never covers a printed title. Otherwise (or POSTER_STYLE=original) use the
+// normal TMDB poster: best English one, then textless, then any.
 // `images` can be passed in when we already have them (saves a TMDB call).
-async function getPosterPath(type, tmdbId, images) {
+const POSTER_STYLE = String(process.env.POSTER_STYLE || 'logo').toLowerCase();
+
+async function getPosterAssets(type, tmdbId, images) {
   const data = images || await getImages(type, tmdbId);
   const posters = data.posters || [];
   const english = posters.filter(p => p.iso_639_1 === 'en').sort(byVotes);
   const textless = posters.filter(p => p.iso_639_1 === null).sort(byVotes);
+  const logo = rankLogos(data.logos)[0];
+
+  if (POSTER_STYLE !== 'original' && textless[0] && logo) {
+    return { posterPath: textless[0].file_path, logoPath: logo.file_path };
+  }
   const found = (english[0] || textless[0] || posters[0])?.file_path;
-  if (found) return found;
+  if (found) return { posterPath: found, logoPath: null };
 
   const { data: details } = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}`, auth);
-  return details.poster_path;
+  return { posterPath: details.poster_path, logoPath: null };
 }
 
 // Backdrop: if the title has an English logo, use a textless backdrop and draw
@@ -53,14 +74,7 @@ async function getPosterPath(type, tmdbId, images) {
 async function getBackdropAssets(type, tmdbId, images) {
   const data = images || await getImages(type, tmdbId);
   const backdrops = data.backdrops || [];
-  // Logo preference: English, then language-neutral, then any other (e.g. the original
-  // Japanese logo for anime). Many anime only have a Japanese-tagged logo on TMDB.
-  const allLogos = (data.logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg'));
-  const logos = [
-    ...allLogos.filter(l => l.iso_639_1 === 'en').sort(byVotes),
-    ...allLogos.filter(l => !l.iso_639_1).sort(byVotes),
-    ...allLogos.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(byVotes)
-  ];
+  const logos = rankLogos(data.logos);
   const textless = backdrops.filter(b => b.iso_639_1 === null).sort(byVotes);
   const english = backdrops.filter(b => b.iso_639_1 === 'en').sort(byVotes);
   const any = [...backdrops].sort(byVotes);
@@ -190,14 +204,14 @@ function drawCover(ctx, img, L) {
 
 // Title logo, centred above the pill, on a soft dark gradient so it stays readable.
 function drawLogo(ctx, logoImg, L, hasTag) {
-  const grad = ctx.createLinearGradient(0, L.H * 0.35, 0, L.H);
+  const grad = ctx.createLinearGradient(0, L.H * L.gradTop, 0, L.H);
   grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
   grad.addColorStop(1, 'rgba(0, 0, 0, 0.75)');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, L.W, L.H);
 
-  const maxW = L.W * 0.5;
-  const maxH = L.H * 0.3;
+  const maxW = L.W * L.logoMaxW;
+  const maxH = L.H * L.logoMaxH;
   const scale = Math.min(maxW / logoImg.width, maxH / logoImg.height);
   const w = logoImg.width * scale;
   const h = logoImg.height * scale;
@@ -206,13 +220,14 @@ function drawLogo(ctx, logoImg, L, hasTag) {
 }
 
 // Pure drawing step (also used by tests with fake images).
-function composePoster(posterImg, rank, tag) {
+function composePoster(posterImg, rank, tag, logoImg = null) {
   const L = LAYOUTS.poster;
   const canvas = createCanvas(Math.round(L.W * L.S), Math.round(L.H * L.S));
   const ctx = canvas.getContext('2d');
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(posterImg, 0, 0, L.W, L.H);
+  if (logoImg) drawLogo(ctx, logoImg, L, !!tag);
   if (rank) drawRank(ctx, rank, L);
   if (tag) drawTagPill(ctx, tag, L);   // last, so it blurs the finished image
   return canvas;
@@ -246,10 +261,18 @@ async function loadImageWithFallback(bigUrl, smallUrl, timeoutMs = 5000) {
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
-    const posterPath = await getPosterPath(type, tmdbId, opts.images);
+    const { posterPath, logoPath } = await getPosterAssets(type, tmdbId, opts.images);
     if (!posterPath) throw new Error('Poster not found');
-    const posterImg = await loadImage(`https://image.tmdb.org/t/p/w780${posterPath}`);
-    return composePoster(posterImg, rank, tag).toBuffer('image/jpeg', 90);
+    const [posterImg, logoImg] = await Promise.all([
+      loadImage(`https://image.tmdb.org/t/p/w780${posterPath}`),
+      logoPath
+        ? loadImageWithFallback(
+            `https://image.tmdb.org/t/p/original${logoPath}`,
+            `https://image.tmdb.org/t/p/w500${logoPath}`
+          ).catch(e => { console.error('Logo load failed:', e.message); return null; })
+        : null
+    ]);
+    return composePoster(posterImg, rank, tag, logoImg).toBuffer('image/jpeg', 90);
   } catch (err) {
     console.error('Error generating poster:', err.message);
     return null;
