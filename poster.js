@@ -44,21 +44,25 @@ function rankLogos(logos) {
   ];
 }
 
-// POSTER_STYLE=logo (default): if the title has a textless poster AND a logo, use the
-// textless poster and draw the logo just above the pill, so the rank number in the
-// corner never covers a printed title. Otherwise (or POSTER_STYLE=original) use the
-// normal TMDB poster: best English one, then textless, then any.
+// POSTER_STYLE decides when to use a textless poster + our own logo above the pill:
+//   logo (default) -> only on ranked posters (Top 10), so the rank number never covers a
+//                     printed title. Other posters keep the normal English poster, because
+//                     TMDB sometimes tags foreign-text posters as "no language".
+//   always         -> on every poster (also unranked ones from the Custom URL).
+//   original       -> never; always the normal poster.
+// Normal poster = best English one, then textless, then any.
 // `images` can be passed in when we already have them (saves a TMDB call).
 const POSTER_STYLE = String(process.env.POSTER_STYLE || 'logo').toLowerCase();
 
-async function getPosterAssets(type, tmdbId, images) {
+async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const data = images || await getImages(type, tmdbId);
   const posters = data.posters || [];
   const english = posters.filter(p => p.iso_639_1 === 'en').sort(byVotes);
   const textless = posters.filter(p => p.iso_639_1 === null).sort(byVotes);
   const logo = rankLogos(data.logos)[0];
 
-  if (POSTER_STYLE !== 'original' && textless[0] && logo) {
+  const useTextless = POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked);
+  if (useTextless && textless[0] && logo) {
     return { posterPath: textless[0].file_path, logoPath: logo.file_path };
   }
   const found = (english[0] || textless[0] || posters[0])?.file_path;
@@ -261,7 +265,7 @@ async function loadImageWithFallback(bigUrl, smallUrl, timeoutMs = 5000) {
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
-    const { posterPath, logoPath } = await getPosterAssets(type, tmdbId, opts.images);
+    const { posterPath, logoPath } = await getPosterAssets(type, tmdbId, opts.images, !!rank);
     if (!posterPath) throw new Error('Poster not found');
     const [posterImg, logoImg] = await Promise.all([
       loadImage(`https://image.tmdb.org/t/p/w780${posterPath}`),
