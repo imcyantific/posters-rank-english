@@ -22,9 +22,13 @@ const USE_IMDB_IDS = true;
 //   plain  (default) -> normal TMDB poster + backdrop, like Xperience's own catalogs.
 //                       Xperience's Custom URL provider then swaps in our /top10/... art
 //                       (with ranks=all) in both Portrait and Landscape.
-//   ranked           -> our own rendered art (rank + pill) baked into the catalog.
-//                       Use this in apps that have no Custom URL provider (e.g. Stremio).
-const RANKED_ART = String(process.env.CATALOG_ART || 'plain').toLowerCase() === 'ranked';
+//   ranked           -> our own rendered art (rank + pill) baked into BOTH the poster
+//                       and the background (landscape tiles and hero banner).
+//   poster           -> ranked art only in the poster; the background stays the plain
+//                       TMDB backdrop, so the hero banner looks clean.
+const CATALOG_ART = String(process.env.CATALOG_ART || 'plain').toLowerCase();
+const RANKED_POSTER = CATALOG_ART === 'ranked' || CATALOG_ART === 'poster';
+const RANKED_BACKGROUND = CATALOG_ART === 'ranked';
 
 // Set META_LOGO=off in Vercel to stop sending the "logo" field.
 const SEND_LOGO = String(process.env.META_LOGO || 'on').toLowerCase() !== 'off';
@@ -205,7 +209,7 @@ async function buildMeta(item, index, type, tmdbType) {
     imdb_id: imdbId || undefined,
     moviedb_id: item.id,
     name: item.title || item.name,
-    poster: RANKED_ART || !details.poster_path
+    poster: RANKED_POSTER || !details.poster_path
       ? `${HOST_URL}/render-poster?${query}`
       : `https://image.tmdb.org/t/p/w780${details.poster_path}`,
     posterShape: 'poster',
@@ -221,7 +225,7 @@ async function buildMeta(item, index, type, tmdbType) {
   };
 
   // Plain mode: clean TMDB backdrop, so hero banners look clean and Xperience can override it.
-  if (RANKED_ART) meta.background = `${HOST_URL}/render-backdrop?${query}`;
+  if (RANKED_BACKGROUND) meta.background = `${HOST_URL}/render-backdrop?${query}`;
   else if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
   // TMDB title logo for the hero banner.
   const logo = pickLogo(details);
