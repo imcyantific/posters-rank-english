@@ -12,7 +12,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 23;
+const IMG_VERSION = 24;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -136,6 +136,25 @@ app.get('/top10-list/:type/:day.json', async (req, res) => {
   }
 });
 
+// We only ask TMDB for English + language-neutral images. Many anime only have a logo
+// tagged in their original language (e.g. Japanese), so when there's no usable logo,
+// fetch the original-language logos too and add them to details.images.
+async function addOriginalLanguageLogos(details, tmdbType, tmdbId) {
+  const usable = (details.images?.logos || []).some(l => l.file_path && !l.file_path.endsWith('.svg'));
+  const lang = details.original_language;
+  if (usable || !lang || lang === 'en') return details;
+  try {
+    const { data } = await axios.get(`https://api.themoviedb.org/3/${tmdbType}/${tmdbId}/images`, {
+      headers: tmdb.headers,
+      params: { ...tmdb.params, include_image_language: lang }
+    });
+    details.images = { ...(details.images || {}), logos: [...(details.images?.logos || []), ...(data.logos || [])] };
+  } catch (e) {
+    console.error(`Original-language logos failed for ${tmdbId}:`, e.message);
+  }
+  return details;
+}
+
 // ---------- Metadata for the hero banner (type • genre • year) ----------
 function yearOf(dateStr) {
   return dateStr ? String(dateStr).slice(0, 4) : '';
@@ -158,8 +177,9 @@ function pickLogo(details) {
   const logos = (details.images?.logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg'));
   const byVotes = (a, b) => (b.vote_average || 0) - (a.vote_average || 0);
   const en = logos.filter(l => l.iso_639_1 === 'en').sort(byVotes);
-  const any = logos.filter(l => !l.iso_639_1).sort(byVotes);
-  const best = en[0] || any[0];
+  const neutral = logos.filter(l => !l.iso_639_1).sort(byVotes);
+  const other = logos.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(byVotes);
+  const best = en[0] || neutral[0] || other[0];
   return best ? `https://image.tmdb.org/t/p/w500${best.file_path}` : undefined;
 }
 
@@ -167,6 +187,7 @@ async function buildMeta(item, index, type, tmdbType) {
   let details = item; // fallback if the details call fails
   try {
     details = await fetchDetails(tmdbType, item.id);
+    await addOriginalLanguageLogos(details, tmdbType, item.id);
   } catch (e) {
     console.error(`Details failed for ${item.id}:`, e.message);
   }
@@ -398,6 +419,7 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
 
     const { tmdbId, type } = resolved;
     const [details, top10] = await Promise.all([fetchDetails(type, tmdbId), getTop10Ids(type)]);
+    await addOriginalLanguageLogos(details, type, tmdbId);
     const tag = determineTag(details, type);
 
     const landscape = String(shape).toLowerCase() === 'landscape';
