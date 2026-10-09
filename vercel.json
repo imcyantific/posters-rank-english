@@ -5,7 +5,7 @@
     {
       "src": "index.js",
       "use": "@vercel/node",
-      "config": { "includeFiles": ["*.ttf"] }
+      "config": { "includeFiles": ["*.ttf"], "maxDuration": 60 }
     }
   ],
   "routes": [
@@ -13,5 +13,9 @@
       "src": "/(.*)",
       "dest": "index.js"
     }
+  ],
+  "crons": [
+    { "path": "/warm?type=movie", "schedule": "10 12 * * *" },
+    { "path": "/warm?type=series", "schedule": "20 12 * * *" }
   ]
 }

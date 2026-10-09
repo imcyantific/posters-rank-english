@@ -12,7 +12,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 26;
+const IMG_VERSION = 27;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -279,10 +279,15 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
 
 // maxAge = how long the app keeps it; cdnAge = how long Vercel's CDN keeps it
 // (without s-maxage Vercel re-renders the image on every request).
-function sendImage(res, buffer, maxAge = 86400, cdnAge = maxAge) {
+// swr = after cdnAge runs out, Vercel keeps serving the old image instantly for this long
+// while it renders a fresh one in the background, so nobody waits for a re-render.
+const WEEK = 7 * 24 * 3600;
+
+function sendImage(res, buffer, maxAge = 86400, cdnAge = maxAge, swr = 0) {
   if (buffer) {
     res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', cdnAge > 0 ? `public, max-age=${maxAge}, s-maxage=${cdnAge}` : 'no-store');
+    const swrPart = swr > 0 ? `, stale-while-revalidate=${swr}` : '';
+    res.setHeader('Cache-Control', cdnAge > 0 ? `public, max-age=${maxAge}, s-maxage=${cdnAge}${swrPart}` : 'no-store');
     res.send(buffer);
   } else {
     res.setHeader('Cache-Control', 'no-store'); // never let apps cache a failure
@@ -293,7 +298,9 @@ function sendImage(res, buffer, maxAge = 86400, cdnAge = maxAge) {
 // 3. Dynamic Poster Rendering Route (tall)
 app.get('/render-poster', async (req, res) => {
   const { tmdbId, type, rank, tag } = req.query;
-  sendImage(res, await generatePoster(tmdbId, type, rank, tag));
+  // The URL already contains rank, tag and version, so the image for a URL never changes:
+  // keep it for a week, and serve it instantly while refreshing after that.
+  sendImage(res, await generatePoster(tmdbId, type, rank, tag), 86400, WEEK, WEEK);
 });
 
 // 4. Dynamic Backdrop Rendering Route (wide)
@@ -313,7 +320,7 @@ app.get('/render-backdrop', async (req, res) => {
       return res.status(500).type('text/plain').send(`Backdrop failed after ${Date.now() - started} ms\n\n${err.stack || err.message}`);
     }
   }
-  sendImage(res, await generateBackdrop(tmdbId, type, rank, tag));
+  sendImage(res, await generateBackdrop(tmdbId, type, rank, tag), 86400, WEEK, WEEK);
 });
 
 // 5. Poster Provider Endpoint (IMDb / TMDB id -> poster with status tag)
@@ -439,10 +446,13 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     if (!buffer) throw new Error('Image generation failed');
 
     if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));
-    // At most 1 hour, and never past midnight when the ranks switch
-    // Vercel's CDN keeps it until midnight (when ranks switch); the app re-checks hourly
+    // Vercel's CDN keeps it until midnight (when ranks/pills can change); the app re-checks hourly.
+    // Without a rank number, an old copy is still fine to show for a moment, so after midnight
+    // Vercel serves it instantly and refreshes it in the background (no slow first load).
+    // With a rank number we never serve a stale copy, so an old number can't appear.
     const untilMidnight = secondsUntilMidnight();
-    sendImage(res, buffer, debug ? 0 : Math.min(3600, untilMidnight), debug ? 0 : untilMidnight);
+    sendImage(res, buffer, debug ? 0 : Math.min(3600, untilMidnight), debug ? 0 : untilMidnight,
+      debug || rank ? 0 : WEEK);
   } catch (err) {
     console.error('Top10 art error:', err.message);
     res.setHeader('Cache-Control', 'no-store');
@@ -451,6 +461,81 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
         .send(`Failed after ${Date.now() - started} ms\n\n${err.stack || err.message}`);
     }
     res.status(500).send('Server Error');
+  }
+});
+
+// ---------- Daily warm-up (Vercel Cron, see vercel.json) ----------
+// Right after the daily list switches, request every Top 10 image once so Vercel's CDN
+// has them ready before anyone opens the app. /warm?type=movie or /warm?type=series
+//
+// WARM_CUSTOM_URL (optional): your Xperience Custom URL, exactly as pasted there, e.g.
+//   https://YOUR-APP.vercel.app/top10/{shape}/{imdb_id}.jpg?type={type}&tmdb={tmdb_id}&ranks=none&v=7
+// so the Custom URL versions of the Top 10 titles are pre-rendered too (portrait + landscape).
+// Keep it identical to Xperience's, including the v= number, or it warms different images.
+async function mapLimit(items, limit, fn) {
+  const out = [];
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+app.get('/warm', async (req, res) => {
+  // Vercel sends "Authorization: Bearer <CRON_SECRET>" when CRON_SECRET is set
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  const type = req.query.type === 'series' ? 'series' : 'movie';
+  const catalogId = type === 'series' ? 'top10_series' : 'top10_movies';
+  const started = Date.now();
+  try {
+    const { data } = await axios.get(`${HOST_URL}/catalog/${type}/${catalogId}.json`, { timeout: 30000 });
+    const metas = data.metas || [];
+
+    const urls = new Set();
+    for (const m of metas) {
+      for (const u of [m.poster, m.background]) {
+        if (u && u.startsWith(HOST_URL)) urls.add(u);
+      }
+      const template = process.env.WARM_CUSTOM_URL;
+      if (template && m.imdb_id) {
+        for (const shape of ['portrait', 'landscape']) {
+          urls.add(template
+            .replace('{shape}', shape)
+            .replace('{imdb_id}', m.imdb_id)
+            .replace('{type}', m.type)
+            .replace('{tmdb_id}', String(m.moviedb_id || '')));
+        }
+      }
+    }
+
+    const results = await mapLimit([...urls], 5, async url => {
+      try {
+        const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 25000 });
+        return { url, status: r.status, cache: r.headers['x-vercel-cache'] || '' };
+      } catch (e) {
+        return { url, status: e.response?.status || 0, error: e.message };
+      }
+    });
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      type,
+      titles: metas.length,
+      images: results.length,
+      ok: results.filter(r => r.status === 200).length,
+      ms: Date.now() - started,
+      results
+    });
+  } catch (err) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(500).json({ error: err.message });
   }
 });
 
