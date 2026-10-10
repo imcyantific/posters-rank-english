@@ -12,7 +12,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 27;
+const IMG_VERSION = 28;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -41,7 +41,7 @@ const tmdb = {
 async function fetchDetails(tmdbType, tmdbId) {
   const { data } = await axios.get(`https://api.themoviedb.org/3/${tmdbType}/${tmdbId}`, {
     headers: tmdb.headers,
-    params: { ...tmdb.params, append_to_response: 'external_ids,images', include_image_language: 'en,null' }
+    params: { ...tmdb.params, append_to_response: 'external_ids,images,watch/providers', include_image_language: 'en,null' }
   });
   return data;
 }
@@ -157,6 +157,24 @@ async function addOriginalLanguageLogos(details, tmdbType, tmdbId) {
     console.error(`Original-language logos failed for ${tmdbId}:`, e.message);
   }
   return details;
+}
+
+// ---------- Poster info stack (provider icon + genre + rating, top-left) ----------
+// POSTER_INFO=off hides it. PROVIDER_REGION picks whose streaming services to show
+// (e.g. NZ, US, AU); falls back to US, then any country TMDB has.
+const POSTER_INFO = String(process.env.POSTER_INFO || 'on').toLowerCase() !== 'off';
+const PROVIDER_REGION = String(process.env.PROVIDER_REGION || 'NZ').toUpperCase();
+
+function posterInfo(details) {
+  if (!POSTER_INFO || !details) return null;
+  const regions = details['watch/providers']?.results || {};
+  const region = regions[PROVIDER_REGION] || regions.US || Object.values(regions)[0];
+  const provider = (region?.flatrate || [])
+    .slice()
+    .sort((a, b) => (a.display_priority ?? 99) - (b.display_priority ?? 99))[0];
+  const genre = details.genres?.[0]?.name || null;
+  const rating = details.vote_count > 0 && details.vote_average ? details.vote_average.toFixed(1) : null;
+  return { providerLogoPath: provider?.logo_path || null, genre, rating };
 }
 
 // ---------- Metadata for the hero banner (type • genre • year) ----------
@@ -298,9 +316,18 @@ function sendImage(res, buffer, maxAge = 86400, cdnAge = maxAge, swr = 0) {
 // 3. Dynamic Poster Rendering Route (tall)
 app.get('/render-poster', async (req, res) => {
   const { tmdbId, type, rank, tag } = req.query;
+  // One details call gives the images, genre, rating and streaming providers
+  let details = null;
+  try {
+    details = await fetchDetails(type === 'tv' ? 'tv' : 'movie', tmdbId);
+    await addOriginalLanguageLogos(details, type === 'tv' ? 'tv' : 'movie', tmdbId);
+  } catch (e) {
+    console.error(`Details failed for poster ${tmdbId}:`, e.message);
+  }
   // The URL already contains rank, tag and version, so the image for a URL never changes:
   // keep it for a week, and serve it instantly while refreshing after that.
-  sendImage(res, await generatePoster(tmdbId, type, rank, tag), 86400, WEEK, WEEK);
+  const buffer = await generatePoster(tmdbId, type, rank, tag, { images: details?.images, info: posterInfo(details) });
+  sendImage(res, buffer, 86400, WEEK, WEEK);
 });
 
 // 4. Dynamic Backdrop Rendering Route (wide)
@@ -353,7 +380,7 @@ app.get('/poster/:id.jpg', async (req, res) => {
     // Full details are needed for Premiere / Finale / New Episode tags
     const details = await fetchDetails(type, tmdbId);
     const tag = determineTag(details, type);
-    sendImage(res, await generatePoster(tmdbId, type, null, tag));
+    sendImage(res, await generatePoster(tmdbId, type, null, tag, { images: details.images, info: posterInfo(details) }));
   } catch (err) {
     console.error('Poster Provider Error:', err.message);
     res.status(500).send('Server Error');
@@ -442,7 +469,7 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     // Reuse the images we already got with the details (one less TMDB call)
     const buffer = landscape
       ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug, images: details.images })
-      : await generatePoster(tmdbId, type, rank, tag, { images: details.images });
+      : await generatePoster(tmdbId, type, rank, tag, { images: details.images, info: posterInfo(details) });
     if (!buffer) throw new Error('Image generation failed');
 
     if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));
