@@ -163,6 +163,8 @@ async function addOriginalLanguageLogos(details, tmdbType, tmdbId) {
 // POSTER_INFO=off hides it. PROVIDER_REGION picks whose streaming services to show
 // (e.g. NZ, US, AU); falls back to US, then any country TMDB has.
 const POSTER_INFO = String(process.env.POSTER_INFO || 'on').toLowerCase() !== 'off';
+// POSTER_META=off hides just the genre + rating line (the provider icon stays).
+const POSTER_META = String(process.env.POSTER_META || 'on').toLowerCase() !== 'off';
 const PROVIDER_REGION = String(process.env.PROVIDER_REGION || 'NZ').toUpperCase();
 
 function posterInfo(details) {
@@ -172,8 +174,8 @@ function posterInfo(details) {
   const provider = (region?.flatrate || [])
     .slice()
     .sort((a, b) => (a.display_priority ?? 99) - (b.display_priority ?? 99))[0];
-  const genre = details.genres?.[0]?.name || null;
-  const rating = details.vote_count > 0 && details.vote_average ? details.vote_average.toFixed(1) : null;
+  const genre = POSTER_META ? details.genres?.[0]?.name || null : null;
+  const rating = POSTER_META && details.vote_count > 0 && details.vote_average ? details.vote_average.toFixed(1) : null;
   return { providerLogoPath: provider?.logo_path || null, genre, rating };
 }
 
@@ -219,7 +221,7 @@ async function buildMeta(item, index, type, tmdbType) {
   const genres = (details.genres || []).map(g => g.name);
   const year = yearOf(details.release_date || details.first_air_date);
 
-  const query = `type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}`;
+  const query = `type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}${POSTER_META ? '' : 'm'}`;
   const meta = {
     id: USE_IMDB_IDS && imdbId ? imdbId : `tmdb:${item.id}`,
     type,
