@@ -7,8 +7,8 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
-  poster:   { S: 1.3, W: 600, H: 900, providerTop: 26, providerTopRanked: 210, providerSize: 60, metaFont: 25, metaChipH: 42, metaGap: 14, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
-  backdrop: { S: 2, W: 960, H: 540, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
+  poster:   { S: 1.3, W: 600, H: 900, providerTop: 26, providerTopRanked: 210, providerSize: 60, metaFont: 25, metaChipH: 42, metaGap: 14, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, shiftForTopPill: true, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
+  backdrop: { S: 2, W: 960, H: 540, providerTop: 24, providerTopRanked: 140, providerSize: 52, metaFont: 22, metaChipH: 38, metaGap: 12, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
 // Inter SemiBold = pill text. Bebas Neue = rank numbers.
@@ -103,6 +103,10 @@ async function getBackdropAssets(type, tmdbId, images) {
 // PILL_POSITION=top puts the status pill (e.g. "Now Streaming") at the top of POSTERS,
 // hanging from the top edge; bottom (default) keeps it at the bottom.
 const PILL_POSITION = String(process.env.PILL_POSITION || 'bottom').toLowerCase() === 'top' ? 'top' : 'bottom';
+// LANDSCAPE_PILL_POSITION does the same for landscape art; if unset it follows PILL_POSITION.
+const LANDSCAPE_PILL_POSITION = process.env.LANDSCAPE_PILL_POSITION
+  ? (String(process.env.LANDSCAPE_PILL_POSITION).toLowerCase() === 'top' ? 'top' : 'bottom')
+  : PILL_POSITION;
 
 function roundedBottomRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -340,6 +344,26 @@ function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
 }
 
 // Pure drawing step (also used by tests with fake images).
+// Shared layout for posters and landscape art. Bottom stack, from the bottom edge up:
+// [pill] -> [genre/rating chip] -> [title logo]. With the pill on top, the rank number and
+// provider icon move down to clear it.
+function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
+  const pillTop = pillPosition === 'top' && !!tag;
+  const pillBottom = !!tag && !pillTop;
+  const hasMeta = !!(info && (info.genre || info.rating));
+  const chipBottom = (pillBottom ? L.H - L.pillH : L.H) - L.metaGap;
+  const aboveChip = hasMeta ? L.metaChipH + L.metaGap : 0;
+  if (logoImg) drawLogo(ctx, logoImg, L, pillBottom, aboveChip + (pillBottom ? 0 : L.metaGap));
+  if (hasMeta) drawMetaChip(ctx, L, info, chipBottom);
+
+  // Only portrait posters are narrow enough for a 2-digit rank to hit a top pill,
+  // and only the rank (with the icon under it) needs to move.
+  const topOffset = pillTop && L.shiftForTopPill && rank ? L.pillH + 4 : 0;
+  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset);
+  if (rank) drawRank(ctx, rank, L, topOffset);
+  if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom');   // last, so it blurs the finished image
+}
+
 function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
   const L = LAYOUTS.poster;
   const canvas = createCanvas(Math.round(L.W * L.S), Math.round(L.H * L.S));
@@ -347,48 +371,19 @@ function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(posterImg, 0, 0, L.W, L.H);
-
-  const pillTop = PILL_POSITION === 'top' && !!tag;
-  const pillBottom = !!tag && !pillTop;
-  const hasMeta = !!(info && (info.genre || info.rating));
-  // Bottom stack, from the bottom edge up: [pill] -> [genre/rating chip] -> [title logo]
-  const chipBottom = (pillBottom ? L.H - L.pillH : L.H) - L.metaGap;
-  const aboveChip = hasMeta ? L.metaChipH + L.metaGap : 0;
-  if (logoImg) drawLogo(ctx, logoImg, L, pillBottom, aboveChip + (pillBottom ? 0 : L.metaGap));
-  if (hasMeta) drawMetaChip(ctx, L, info, chipBottom);
-
-  // With the pill on top, the rank number and provider icon move down to clear it
-  const topOffset = pillTop ? L.pillH + 4 : 0;
-  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset);
-  if (rank) drawRank(ctx, rank, L, topOffset);
-  if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom');   // last, so it blurs the finished image
+  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition: PILL_POSITION });
   return canvas;
 }
 
-function composeBackdrop(backdropImg, logoImg, rank, tag) {
+function composeBackdrop(backdropImg, logoImg, rank, tag, info = null) {
   const L = LAYOUTS.backdrop;
   const canvas = createCanvas(Math.round(L.W * L.S), Math.round(L.H * L.S));
   const ctx = canvas.getContext('2d');
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   drawCover(ctx, backdropImg, L);
-  if (logoImg) drawLogo(ctx, logoImg, L, !!tag);
-  if (rank) drawRank(ctx, rank, L);
-  if (tag) drawTagPill(ctx, tag, L);
+  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition: LANDSCAPE_PILL_POSITION });
   return canvas;
-}
-
-// Download an image with a time limit. If the big version is slow or fails, use the
-// smaller fallback so the render never times out. Vercel caches the finished image
-// until midnight, so this download only happens once per title per day.
-async function loadImageWithFallback(bigUrl, smallUrl, timeoutMs = 5000) {
-  try {
-    const { data } = await axios.get(bigUrl, { responseType: 'arraybuffer', timeout: timeoutMs });
-    return await loadImage(Buffer.from(data));
-  } catch (e) {
-    console.error('Large image slow/failed, using smaller one:', e.message);
-    return loadImage(smallUrl);
-  }
 }
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
@@ -421,8 +416,9 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
   try {
     const { backdropPath, logoPath } = await getBackdropAssets(type, tmdbId, opts.images);
     if (!backdropPath) throw new Error('Backdrop not found');
-    // Download backdrop and logo at the same time.
-    const [backdropImg, logoImg] = await Promise.all([
+    // Download backdrop, logo and provider icon at the same time.
+    const info = opts.info || null;
+    const [backdropImg, logoImg, providerImg] = await Promise.all([
       // Full-size backdrop for a sharp 1920x1080 render; falls back to w1280 if slow.
       loadImageWithFallback(
         `https://image.tmdb.org/t/p/original${backdropPath}`,
@@ -434,9 +430,14 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
             `https://image.tmdb.org/t/p/w500${logoPath}`
           )
             .catch(e => { console.error('Logo load failed:', e.message); return null; })
+        : null,
+      info?.providerLogoPath
+        ? loadImage(`https://image.tmdb.org/t/p/w154${info.providerLogoPath}`)
+            .catch(e => { console.error('Provider logo failed:', e.message); return null; })
         : null
     ]);
-    return composeBackdrop(backdropImg, logoImg, rank, tag).toBuffer('image/jpeg', 90);
+    const infoForDraw = info ? { genre: info.genre, rating: info.rating, providerImg } : null;
+    return composeBackdrop(backdropImg, logoImg, rank, tag, infoForDraw).toBuffer('image/jpeg', 90);
   } catch (err) {
     console.error('Error generating backdrop:', err.message);
     if (opts.throwErrors) throw err;   // used by ?debug=1 so you can see the real error
