@@ -7,7 +7,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
-  poster:   { S: 1.3, W: 600, H: 900, infoTop: 28, infoTopRanked: 205, providerSize: 64, genreFont: 22, ratingFont: 28, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
+  poster:   { S: 1.3, W: 600, H: 900, infoTop: 26, infoMargin: 26, providerSize: 64, genreFont: 22, ratingFont: 28, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
   backdrop: { S: 2, W: 960, H: 540, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
@@ -206,16 +206,16 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Small info stack in the top-left: streaming provider icon, then genre, then rating.
-// Sits under the rank number when there is one.
-function drawInfoStack(ctx, L, info, hasRank) {
+// Small info stack in the top-RIGHT corner (the rank number stays top-left):
+// streaming provider icon, then genre, then rating, all aligned to the right edge.
+function drawInfoStack(ctx, L, info) {
   if (!info || (!info.providerImg && !info.genre && !info.rating)) return;
-  const x = L.rankX + 8;
-  let y = hasRank ? L.infoTopRanked : L.infoTop;
+  const right = L.W - L.infoMargin;
+  let y = L.infoTop;
 
   ctx.save();
   // Soft dark glow behind the stack so it stays readable on bright posters
-  const gx = x + 60, gy = y + 75, gr = 190;
+  const gx = right - 60, gy = y + 75, gr = 190;
   const glow = ctx.createRadialGradient(gx, gy, 10, gx, gy, gr);
   glow.addColorStop(0, 'rgba(0, 0, 0, 0.42)');
   glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
@@ -228,6 +228,7 @@ function drawInfoStack(ctx, L, info, hasRank) {
 
   if (info.providerImg) {
     const s = L.providerSize;
+    const x = right - s;
     ctx.save();
     roundedRectPath(ctx, x, y, s, s, s * 0.22);
     ctx.fill(); // shadow under the icon
@@ -238,21 +239,24 @@ function drawInfoStack(ctx, L, info, hasRank) {
     y += s + 14;
   }
 
-  ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   if (info.genre) {
     ctx.font = `600 ${L.genreFont}px "Inter"`;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-    ctx.fillText(String(info.genre).toUpperCase(), x, y, L.W * 0.6);
+    ctx.textAlign = 'right';
+    ctx.fillText(String(info.genre).toUpperCase(), right, y, L.W * 0.5);
     y += L.genreFont + 10;
   }
   if (info.rating) {
     const f = L.ratingFont;
-    ctx.fillStyle = '#ffc93c';
-    drawStar(ctx, x + f * 0.42, y + f * 0.48, f * 0.45);
+    const text = String(info.rating);
     ctx.font = `600 ${f}px "Inter"`;
+    const textW = ctx.measureText(text).width;
+    ctx.textAlign = 'right';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(String(info.rating), x + f * 1.0, y);
+    ctx.fillText(text, right, y);
+    ctx.fillStyle = '#ffc93c';
+    drawStar(ctx, right - textW - f * 0.55, y + f * 0.48, f * 0.45);
   }
   ctx.restore();
 }
@@ -305,7 +309,7 @@ function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(posterImg, 0, 0, L.W, L.H);
   if (logoImg) drawLogo(ctx, logoImg, L, !!tag);
-  if (info) drawInfoStack(ctx, L, info, !!rank);
+  if (info) drawInfoStack(ctx, L, info);
   if (rank) drawRank(ctx, rank, L);
   if (tag) drawTagPill(ctx, tag, L);   // last, so it blurs the finished image
   return canvas;
