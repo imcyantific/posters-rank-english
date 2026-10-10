@@ -7,7 +7,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
-  poster:   { S: 1.3, W: 600, H: 900, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
+  poster:   { S: 1.3, W: 600, H: 900, infoTop: 26, infoMargin: 26, providerSize: 64, genreFont: 22, ratingFont: 28, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
   backdrop: { S: 2, W: 960, H: 540, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
@@ -184,6 +184,83 @@ function drawTagPill(ctx, text, L) {
   ctx.restore();
 }
 
+// Five-point star drawn as a shape (doesn't depend on the font having a ★ glyph)
+function drawStar(ctx, cx, cy, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const radius = i % 2 === 0 ? r : r * 0.45;
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    ctx.lineTo(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function roundedRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Small info stack in the top-RIGHT corner (the rank number stays top-left):
+// streaming provider icon, then genre, then rating, all aligned to the right edge.
+function drawInfoStack(ctx, L, info) {
+  if (!info || (!info.providerImg && !info.genre && !info.rating)) return;
+  const right = L.W - L.infoMargin;
+  let y = L.infoTop;
+
+  ctx.save();
+  // Soft dark glow behind the stack so it stays readable on bright posters
+  const gx = right - 60, gy = y + 75, gr = 190;
+  const glow = ctx.createRadialGradient(gx, gy, 10, gx, gy, gr);
+  glow.addColorStop(0, 'rgba(0, 0, 0, 0.42)');
+  glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(gx - gr, gy - gr, gr * 2, gr * 2); // covers the whole fade, so no hard edges
+
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 2;
+
+  if (info.providerImg) {
+    const s = L.providerSize;
+    const x = right - s;
+    ctx.save();
+    roundedRectPath(ctx, x, y, s, s, s * 0.22);
+    ctx.fill(); // shadow under the icon
+    ctx.clip();
+    ctx.shadowColor = 'transparent';
+    ctx.drawImage(info.providerImg, x, y, s, s);
+    ctx.restore();
+    y += s + 14;
+  }
+
+  ctx.textBaseline = 'top';
+  if (info.genre) {
+    ctx.font = `600 ${L.genreFont}px "Inter"`;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(info.genre).toUpperCase(), right, y, L.W * 0.5);
+    y += L.genreFont + 10;
+  }
+  if (info.rating) {
+    const f = L.ratingFont;
+    const text = String(info.rating);
+    ctx.font = `600 ${f}px "Inter"`;
+    const textW = ctx.measureText(text).width;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, right, y);
+    ctx.fillStyle = '#ffc93c';
+    drawStar(ctx, right - textW - f * 0.55, y + f * 0.48, f * 0.45);
+  }
+  ctx.restore();
+}
+
 function drawRank(ctx, rank, L) {
   ctx.save();
   ctx.font = `${L.rankFont}px "BebasNeue"`;
@@ -224,7 +301,7 @@ function drawLogo(ctx, logoImg, L, hasTag) {
 }
 
 // Pure drawing step (also used by tests with fake images).
-function composePoster(posterImg, rank, tag, logoImg = null) {
+function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
   const L = LAYOUTS.poster;
   const canvas = createCanvas(Math.round(L.W * L.S), Math.round(L.H * L.S));
   const ctx = canvas.getContext('2d');
@@ -232,6 +309,7 @@ function composePoster(posterImg, rank, tag, logoImg = null) {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(posterImg, 0, 0, L.W, L.H);
   if (logoImg) drawLogo(ctx, logoImg, L, !!tag);
+  if (info) drawInfoStack(ctx, L, info);
   if (rank) drawRank(ctx, rank, L);
   if (tag) drawTagPill(ctx, tag, L);   // last, so it blurs the finished image
   return canvas;
@@ -267,16 +345,22 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
   try {
     const { posterPath, logoPath } = await getPosterAssets(type, tmdbId, opts.images, !!rank);
     if (!posterPath) throw new Error('Poster not found');
-    const [posterImg, logoImg] = await Promise.all([
+    const info = opts.info || null;
+    const [posterImg, logoImg, providerImg] = await Promise.all([
       loadImage(`https://image.tmdb.org/t/p/w780${posterPath}`),
       logoPath
         ? loadImageWithFallback(
             `https://image.tmdb.org/t/p/original${logoPath}`,
             `https://image.tmdb.org/t/p/w500${logoPath}`
           ).catch(e => { console.error('Logo load failed:', e.message); return null; })
+        : null,
+      info?.providerLogoPath
+        ? loadImage(`https://image.tmdb.org/t/p/w154${info.providerLogoPath}`)
+            .catch(e => { console.error('Provider logo failed:', e.message); return null; })
         : null
     ]);
-    return composePoster(posterImg, rank, tag, logoImg).toBuffer('image/jpeg', 90);
+    const infoForDraw = info ? { genre: info.genre, rating: info.rating, providerImg } : null;
+    return composePoster(posterImg, rank, tag, logoImg, infoForDraw).toBuffer('image/jpeg', 90);
   } catch (err) {
     console.error('Error generating poster:', err.message);
     return null;
