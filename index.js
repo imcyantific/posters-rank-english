@@ -12,7 +12,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 29;
+const IMG_VERSION = 31;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -333,11 +333,20 @@ app.get('/render-poster', async (req, res) => {
 // 4. Dynamic Backdrop Rendering Route (wide)
 app.get('/render-backdrop', async (req, res) => {
   const { tmdbId, type, rank, tag, debug } = req.query;
+  // One details call gives the images, genre, rating and streaming providers
+  let details = null;
+  try {
+    details = await fetchDetails(type === 'tv' ? 'tv' : 'movie', tmdbId);
+    await addOriginalLanguageLogos(details, type === 'tv' ? 'tv' : 'movie', tmdbId);
+  } catch (e) {
+    console.error(`Details failed for backdrop ${tmdbId}:`, e.message);
+  }
+  const bdOpts = { images: details?.images, info: posterInfo(details) };
   if (debug) {
     // Open the URL with &debug=1 to see the real error text instead of a blank 404
     const started = Date.now();
     try {
-      const buf = await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: true });
+      const buf = await generateBackdrop(tmdbId, type, rank, tag, { ...bdOpts, throwErrors: true });
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Render-Ms', String(Date.now() - started));
       res.setHeader('Content-Type', 'image/jpeg');
@@ -347,7 +356,7 @@ app.get('/render-backdrop', async (req, res) => {
       return res.status(500).type('text/plain').send(`Backdrop failed after ${Date.now() - started} ms\n\n${err.stack || err.message}`);
     }
   }
-  sendImage(res, await generateBackdrop(tmdbId, type, rank, tag), 86400, WEEK, WEEK);
+  sendImage(res, await generateBackdrop(tmdbId, type, rank, tag, bdOpts), 86400, WEEK, WEEK);
 });
 
 // 5. Poster Provider Endpoint (IMDb / TMDB id -> poster with status tag)
@@ -468,7 +477,7 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
 
     // Reuse the images we already got with the details (one less TMDB call)
     const buffer = landscape
-      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug, images: details.images })
+      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug, images: details.images, info: posterInfo(details) })
       : await generatePoster(tmdbId, type, rank, tag, { images: details.images, info: posterInfo(details) });
     if (!buffer) throw new Error('Image generation failed');
 
