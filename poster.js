@@ -386,6 +386,19 @@ function composeBackdrop(backdropImg, logoImg, rank, tag, info = null) {
   return canvas;
 }
 
+// Download an image with a time limit. If the big version is slow or fails, use the
+// smaller fallback so the render never times out. Vercel caches the finished image,
+// so this download only happens about once per title.
+async function loadImageWithFallback(bigUrl, smallUrl, timeoutMs = 5000) {
+  try {
+    const { data } = await axios.get(bigUrl, { responseType: 'arraybuffer', timeout: timeoutMs });
+    return await loadImage(Buffer.from(data));
+  } catch (e) {
+    console.error('Large image slow/failed, using smaller one:', e.message);
+    return loadImage(smallUrl);
+  }
+}
+
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
     const { posterPath, logoPath } = await getPosterAssets(type, tmdbId, opts.images, !!rank);
