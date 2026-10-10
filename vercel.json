@@ -5,7 +5,7 @@
     {
       "src": "index.js",
       "use": "@vercel/node",
-      "config": { "includeFiles": ["*.ttf", "tessdata/**", "node_modules/tesseract.js/**", "node_modules/tesseract.js-core/**"], "maxDuration": 60 }
+      "config": { "includeFiles": ["*.ttf"], "maxDuration": 60 }
     }
   ],
   "routes": [
