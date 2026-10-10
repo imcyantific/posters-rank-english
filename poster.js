@@ -59,7 +59,8 @@ function rankLogos(logos) {
 //                     TMDB sometimes tags foreign-text posters as "no language".
 //   always         -> on every poster (also unranked ones from the Custom URL).
 //   original       -> never; always the normal poster.
-// Normal poster = best English one, then textless, then any.
+// Normal poster = best English one, then one in the original language (has the title),
+// then textless, then any.
 // `images` can be passed in when we already have them (saves a TMDB call).
 const POSTER_STYLE = String(process.env.POSTER_STYLE || 'logo').toLowerCase();
 
@@ -68,13 +69,15 @@ async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const posters = data.posters || [];
   const english = posters.filter(p => p.iso_639_1 === 'en').sort(byVotes);
   const textless = posters.filter(p => p.iso_639_1 === null).sort(byVotes);
+  // Posters in another language (e.g. the Japanese poster of an anime) still show the title.
+  const foreign = posters.filter(p => p.iso_639_1 && p.iso_639_1 !== 'en').sort(byVotes);
   const logo = rankLogos(data.logos)[0];
 
   const useTextless = POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked);
   if (useTextless && textless[0] && logo) {
     return { posterPath: textless[0].file_path, logoPath: logo.file_path };
   }
-  const found = (english[0] || textless[0] || posters[0])?.file_path;
+  const found = (english[0] || foreign[0] || textless[0] || posters[0])?.file_path;
   if (found) return { posterPath: found, logoPath: null };
 
   const { data: details } = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}`, auth);
