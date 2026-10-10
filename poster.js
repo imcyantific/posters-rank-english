@@ -7,7 +7,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
-  poster:   { S: 1.3, W: 600, H: 900, providerTop: 26, providerTopRanked: 210, providerSize: 60, metaFont: 22, metaLineH: 30, metaGap: 14, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
+  poster:   { S: 1.3, W: 600, H: 900, providerTop: 26, providerTopRanked: 210, providerSize: 60, metaFont: 25, metaChipH: 42, metaGap: 14, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
   backdrop: { S: 2, W: 960, H: 540, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
@@ -100,6 +100,21 @@ async function getBackdropAssets(type, tmdbId, images) {
   return { backdropPath, logoPath };
 }
 
+// PILL_POSITION=top puts the status pill (e.g. "Now Streaming") at the top of POSTERS,
+// hanging from the top edge; bottom (default) keeps it at the bottom.
+const PILL_POSITION = String(process.env.PILL_POSITION || 'bottom').toLowerCase() === 'top' ? 'top' : 'bottom';
+
+function roundedBottomRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + w, y);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.closePath();
+}
+
 function roundedTopRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x, y + h);
@@ -136,7 +151,7 @@ function blurRegion(srcCanvas, L, x, y, w, h, pad = 40, shrink = 10) {
 }
 
 // Frosted-glass tab at the bottom centre.
-function drawTagPill(ctx, text, L) {
+function drawTagPill(ctx, text, L, position = 'bottom') {
   if (!text) return;
   const label = String(text);
 
@@ -147,13 +162,15 @@ function drawTagPill(ctx, text, L) {
   const pillW = Math.min(L.W - 60, Math.max(textW + 72, 230));
   const pillH = L.pillH;
   const x = Math.round((L.W - pillW) / 2);
-  const y = L.H - pillH;
+  const atTop = position === 'top';
+  const y = atTop ? 0 : L.H - pillH;
   const r = L.pillR;
+  const shape = atTop ? roundedBottomRect : roundedTopRect;
 
   // 1. Real blur of the image behind the pill
   const { canvas: blurred, sx, sy, sw, sh } = blurRegion(ctx.canvas, L, x, y, pillW, pillH);
   ctx.save();
-  roundedTopRect(ctx, x, y, pillW, pillH, r);
+  shape(ctx, x, y, pillW, pillH, r);
   ctx.clip();
   ctx.drawImage(blurred, sx, sy, sw, sh);
 
@@ -170,7 +187,8 @@ function drawTagPill(ctx, text, L) {
   // 3. Rim
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
   ctx.lineWidth = 1.5;
-  roundedTopRect(ctx, x + 0.75, y + 0.75, pillW - 1.5, pillH, r);
+  if (atTop) shape(ctx, x + 0.75, y - 0.75, pillW - 1.5, pillH, r);
+  else shape(ctx, x + 0.75, y + 0.75, pillW - 1.5, pillH, r);
   ctx.stroke();
 
   // 4. Text
@@ -208,11 +226,11 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 
 // Streaming provider icon in the top-left: under the rank number when there is one,
 // otherwise in the corner. (The top-right is left free for the app's "watched" tick.)
-function drawProviderIcon(ctx, L, img, hasRank) {
+function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0) {
   if (!img) return;
   const s = L.providerSize;
   const x = L.rankX + 10;
-  const y = hasRank ? L.providerTopRanked : L.providerTop;
+  const y = (hasRank ? L.providerTopRanked : L.providerTop) + offsetY;
   ctx.save();
   ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
   ctx.shadowBlur = 10;
@@ -225,57 +243,64 @@ function drawProviderIcon(ctx, L, img, hasRank) {
   ctx.restore();
 }
 
-// Where the genre/rating line sits: just above the pill (or the bottom edge).
-function metaLineTop(L, hasTag) {
-  return L.H - (hasTag ? L.pillH : 0) - L.metaGap - L.metaLineH;
-}
-
-// "GENRE  •  ★ 8.4", centred, between the title logo and the pill.
-function drawMetaLine(ctx, L, info, hasTag, hasLogoFade) {
+// Genre + rating on a small dark chip ("Science Fiction  •  ★ 8.4"), centred.
+// bottomY = where the chip's bottom edge goes. Text is drawn slightly bold so it reads
+// well on any artwork.
+function drawMetaChip(ctx, L, info, bottomY) {
   if (!info || (!info.genre && !info.rating)) return;
-  const top = metaLineTop(L, hasTag);
   const f = L.metaFont;
-
-  ctx.save();
-  // Without the title-logo fade, add a small one so the line stays readable
-  if (!hasLogoFade) {
-    const grad = ctx.createLinearGradient(0, top - 90, 0, L.H);
-    grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    grad.addColorStop(1, 'rgba(0, 0, 0, 0.6)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, top - 90, L.W, L.H - top + 90);
-  }
-
-  ctx.font = `600 ${f}px "Inter"`;
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'left';
-  const genre = info.genre ? String(info.genre).toUpperCase() : '';
+  const h = L.metaChipH;
+  const genre = info.genre ? String(info.genre) : '';
   const dot = genre && info.rating ? '  \u2022  ' : '';
   const rating = info.rating ? String(info.rating) : '';
+
+  ctx.save();
+  ctx.font = `600 ${f}px "Inter"`;
   const starW = rating ? f * 1.05 : 0;
   const genreW = ctx.measureText(genre).width;
   const dotW = ctx.measureText(dot).width;
   const ratingW = ctx.measureText(rating).width;
-  let x = (L.W - (genreW + dotW + starW + ratingW)) / 2;
-  const cy = top + L.metaLineH / 2;
+  const contentW = genreW + dotW + starW + ratingW;
+  const padX = 20;
+  const w = Math.min(L.W - 40, contentW + padX * 2);
+  const x0 = (L.W - w) / 2;
+  const top = bottomY - h;
 
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 1;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-  if (genre) { ctx.fillText(genre, x, cy); x += genreW; }
-  if (dot) { ctx.fillText(dot, x, cy); x += dotW; }
+  // chip
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = 'rgba(12, 12, 16, 0.62)';
+  roundedRectPath(ctx, x0, top, w, h, h / 2);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // text (faux-bold: fill + thin stroke in the same colour)
+  let x = (L.W - contentW) / 2;
+  const cy = top + h / 2 + 1;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 0.9;
+  const boldText = (t, color) => {
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.fillText(t, x, cy, L.W - 80);
+    ctx.strokeText(t, x, cy, L.W - 80);
+  };
+  if (genre) { boldText(genre, '#ffffff'); x += genreW; }
+  if (dot) { boldText(dot, 'rgba(255, 255, 255, 0.7)'); x += dotW; }
   if (rating) {
     ctx.fillStyle = '#ffc93c';
-    drawStar(ctx, x + f * 0.42, cy - f * 0.02, f * 0.42);
+    drawStar(ctx, x + f * 0.42, cy - 1, f * 0.42);
     x += starW;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(rating, x, cy);
+    boldText(rating, '#ffffff');
   }
   ctx.restore();
 }
 
-function drawRank(ctx, rank, L) {
+function drawRank(ctx, rank, L, offsetY = 0) {
   ctx.save();
   ctx.font = `${L.rankFont}px "BebasNeue"`;
   ctx.textAlign = 'left';
@@ -285,7 +310,7 @@ function drawRank(ctx, rank, L) {
   ctx.shadowOffsetX = 4;
   ctx.shadowOffsetY = 4;
   ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-  ctx.fillText(`${rank}`, L.rankX, L.rankY);
+  ctx.fillText(`${rank}`, L.rankX, L.rankY + offsetY);
   ctx.restore();
 }
 
@@ -322,13 +347,21 @@ function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(posterImg, 0, 0, L.W, L.H);
+
+  const pillTop = PILL_POSITION === 'top' && !!tag;
+  const pillBottom = !!tag && !pillTop;
   const hasMeta = !!(info && (info.genre || info.rating));
-  // Leave room under the title logo for the genre/rating line
-  if (logoImg) drawLogo(ctx, logoImg, L, !!tag, hasMeta ? L.metaLineH + 4 : 0);
-  if (hasMeta) drawMetaLine(ctx, L, info, !!tag, !!logoImg);
-  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank);
-  if (rank) drawRank(ctx, rank, L);
-  if (tag) drawTagPill(ctx, tag, L);   // last, so it blurs the finished image
+  // Bottom stack, from the bottom edge up: [pill] -> [genre/rating chip] -> [title logo]
+  const chipBottom = (pillBottom ? L.H - L.pillH : L.H) - L.metaGap;
+  const aboveChip = hasMeta ? L.metaChipH + L.metaGap : 0;
+  if (logoImg) drawLogo(ctx, logoImg, L, pillBottom, aboveChip + (pillBottom ? 0 : L.metaGap));
+  if (hasMeta) drawMetaChip(ctx, L, info, chipBottom);
+
+  // With the pill on top, the rank number and provider icon move down to clear it
+  const topOffset = pillTop ? L.pillH + 4 : 0;
+  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset);
+  if (rank) drawRank(ctx, rank, L, topOffset);
+  if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom');   // last, so it blurs the finished image
   return canvas;
 }
 
