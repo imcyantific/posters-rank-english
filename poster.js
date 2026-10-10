@@ -54,6 +54,17 @@ function rankLogos(logos) {
 // `images` can be passed in when we already have them (saves a TMDB call).
 const POSTER_STYLE = String(process.env.POSTER_STYLE || 'logo').toLowerCase();
 
+// POSTER_ORIGINAL: comma-separated TMDB ids that always use the normal English poster,
+// for the odd title whose "textless" poster on TMDB actually has foreign text on it.
+// Plain ids match movies and series; use "tv:1234" or "movie:1234" to be specific.
+const POSTER_ORIGINAL = new Set(
+  String(process.env.POSTER_ORIGINAL || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean)
+);
+function forceOriginalPoster(type, tmdbId) {
+  const id = String(tmdbId);
+  return POSTER_ORIGINAL.has(id) || POSTER_ORIGINAL.has(`${type === 'tv' ? 'tv' : 'movie'}:${id}`);
+}
+
 async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const data = images || await getImages(type, tmdbId);
   const posters = data.posters || [];
@@ -61,7 +72,8 @@ async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const textless = posters.filter(p => p.iso_639_1 === null).sort(byVotes);
   const logo = rankLogos(data.logos)[0];
 
-  const useTextless = POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked);
+  const useTextless = !forceOriginalPoster(type, tmdbId) &&
+    (POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked));
   if (useTextless && textless[0] && logo) {
     return { posterPath: textless[0].file_path, logoPath: logo.file_path };
   }
@@ -322,7 +334,9 @@ function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(posterImg, 0, 0, L.W, L.H);
-  const hasMeta = !!(info && (info.genre || info.rating));
+  // The genre/rating line only goes under OUR drawn title logo. On a normal poster the
+  // title is printed in the artwork, often right where the line would go, so skip it.
+  const hasMeta = !!(logoImg && info && (info.genre || info.rating));
   // Leave room under the title logo for the genre/rating line
   if (logoImg) drawLogo(ctx, logoImg, L, !!tag, hasMeta ? L.metaLineH + 4 : 0);
   if (hasMeta) drawMetaLine(ctx, L, info, !!tag, !!logoImg);
