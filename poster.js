@@ -1,7 +1,6 @@
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const axios = require('axios');
 const path = require('path');
-const { posterHasText } = require('./textcheck');
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 
@@ -50,8 +49,6 @@ function rankLogos(logos) {
 //                     printed title. Other posters keep the normal English poster, because
 //                     TMDB sometimes tags foreign-text posters as "no language".
 //   always         -> on every poster (also unranked ones from the Custom URL).
-// Either way, textless posters that turn out to have printed text are skipped
-// (TEXTLESS_CHECK, on by default) and the normal English poster is used instead.
 //   original       -> never; always the normal poster.
 // Normal poster = best English one, then textless, then any.
 // `images` can be passed in when we already have them (saves a TMDB call).
@@ -66,11 +63,7 @@ async function getPosterAssets(type, tmdbId, images, ranked = false) {
 
   const useTextless = POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked);
   if (useTextless && textless[0] && logo) {
-    // Some "textless" posters really have a printed (often foreign) title, so we
-    // check the best few and use the first clean one (see textcheck.js).
-    for (const p of textless.slice(0, 3)) {
-      if (!(await posterHasText(p.file_path))) return { posterPath: p.file_path, logoPath: logo.file_path };
-    }
+    return { posterPath: textless[0].file_path, logoPath: logo.file_path };
   }
   const found = (english[0] || textless[0] || posters[0])?.file_path;
   if (found) return { posterPath: found, logoPath: null };
