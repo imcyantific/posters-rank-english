@@ -7,7 +7,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
-  poster:   { S: 1.3, W: 600, H: 900, infoTop: 26, infoMargin: 26, providerSize: 64, genreFont: 22, ratingFont: 28, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
+  poster:   { S: 1.3, W: 600, H: 900, providerTop: 26, providerTopRanked: 210, providerSize: 60, metaFont: 22, metaLineH: 30, metaGap: 14, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
   backdrop: { S: 2, W: 960, H: 540, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
@@ -206,57 +206,71 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Small info stack in the top-RIGHT corner (the rank number stays top-left):
-// streaming provider icon, then genre, then rating, all aligned to the right edge.
-function drawInfoStack(ctx, L, info) {
-  if (!info || (!info.providerImg && !info.genre && !info.rating)) return;
-  const right = L.W - L.infoMargin;
-  let y = L.infoTop;
+// Streaming provider icon in the top-left: under the rank number when there is one,
+// otherwise in the corner. (The top-right is left free for the app's "watched" tick.)
+function drawProviderIcon(ctx, L, img, hasRank) {
+  if (!img) return;
+  const s = L.providerSize;
+  const x = L.rankX + 10;
+  const y = hasRank ? L.providerTopRanked : L.providerTop;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 2;
+  roundedRectPath(ctx, x, y, s, s, s * 0.22);
+  ctx.fill(); // shadow under the icon
+  ctx.clip();
+  ctx.shadowColor = 'transparent';
+  ctx.drawImage(img, x, y, s, s);
+  ctx.restore();
+}
+
+// Where the genre/rating line sits: just above the pill (or the bottom edge).
+function metaLineTop(L, hasTag) {
+  return L.H - (hasTag ? L.pillH : 0) - L.metaGap - L.metaLineH;
+}
+
+// "GENRE  •  ★ 8.4", centred, between the title logo and the pill.
+function drawMetaLine(ctx, L, info, hasTag, hasLogoFade) {
+  if (!info || (!info.genre && !info.rating)) return;
+  const top = metaLineTop(L, hasTag);
+  const f = L.metaFont;
 
   ctx.save();
-  // Soft dark glow behind the stack so it stays readable on bright posters
-  const gx = right - 60, gy = y + 75, gr = 190;
-  const glow = ctx.createRadialGradient(gx, gy, 10, gx, gy, gr);
-  glow.addColorStop(0, 'rgba(0, 0, 0, 0.42)');
-  glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(gx - gr, gy - gr, gr * 2, gr * 2); // covers the whole fade, so no hard edges
-
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
-  ctx.shadowBlur = 8;
-  ctx.shadowOffsetY = 2;
-
-  if (info.providerImg) {
-    const s = L.providerSize;
-    const x = right - s;
-    ctx.save();
-    roundedRectPath(ctx, x, y, s, s, s * 0.22);
-    ctx.fill(); // shadow under the icon
-    ctx.clip();
-    ctx.shadowColor = 'transparent';
-    ctx.drawImage(info.providerImg, x, y, s, s);
-    ctx.restore();
-    y += s + 14;
+  // Without the title-logo fade, add a small one so the line stays readable
+  if (!hasLogoFade) {
+    const grad = ctx.createLinearGradient(0, top - 90, 0, L.H);
+    grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0.6)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, top - 90, L.W, L.H - top + 90);
   }
 
-  ctx.textBaseline = 'top';
-  if (info.genre) {
-    ctx.font = `600 ${L.genreFont}px "Inter"`;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-    ctx.textAlign = 'right';
-    ctx.fillText(String(info.genre).toUpperCase(), right, y, L.W * 0.5);
-    y += L.genreFont + 10;
-  }
-  if (info.rating) {
-    const f = L.ratingFont;
-    const text = String(info.rating);
-    ctx.font = `600 ${f}px "Inter"`;
-    const textW = ctx.measureText(text).width;
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(text, right, y);
+  ctx.font = `600 ${f}px "Inter"`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const genre = info.genre ? String(info.genre).toUpperCase() : '';
+  const dot = genre && info.rating ? '  \u2022  ' : '';
+  const rating = info.rating ? String(info.rating) : '';
+  const starW = rating ? f * 1.05 : 0;
+  const genreW = ctx.measureText(genre).width;
+  const dotW = ctx.measureText(dot).width;
+  const ratingW = ctx.measureText(rating).width;
+  let x = (L.W - (genreW + dotW + starW + ratingW)) / 2;
+  const cy = top + L.metaLineH / 2;
+
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 1;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+  if (genre) { ctx.fillText(genre, x, cy); x += genreW; }
+  if (dot) { ctx.fillText(dot, x, cy); x += dotW; }
+  if (rating) {
     ctx.fillStyle = '#ffc93c';
-    drawStar(ctx, right - textW - f * 0.55, y + f * 0.48, f * 0.45);
+    drawStar(ctx, x + f * 0.42, cy - f * 0.02, f * 0.42);
+    x += starW;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(rating, x, cy);
   }
   ctx.restore();
 }
@@ -284,7 +298,7 @@ function drawCover(ctx, img, L) {
 }
 
 // Title logo, centred above the pill, on a soft dark gradient so it stays readable.
-function drawLogo(ctx, logoImg, L, hasTag) {
+function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
   const grad = ctx.createLinearGradient(0, L.H * L.gradTop, 0, L.H);
   grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
   grad.addColorStop(1, 'rgba(0, 0, 0, 0.75)');
@@ -296,7 +310,7 @@ function drawLogo(ctx, logoImg, L, hasTag) {
   const scale = Math.min(maxW / logoImg.width, maxH / logoImg.height);
   const w = logoImg.width * scale;
   const h = logoImg.height * scale;
-  const bottom = L.H - (hasTag ? L.pillH : 0) - 28;
+  const bottom = L.H - (hasTag ? L.pillH : 0) - 28 - reserveBelow;
   ctx.drawImage(logoImg, (L.W - w) / 2, bottom - h, w, h);
 }
 
@@ -308,8 +322,11 @@ function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(posterImg, 0, 0, L.W, L.H);
-  if (logoImg) drawLogo(ctx, logoImg, L, !!tag);
-  if (info) drawInfoStack(ctx, L, info);
+  const hasMeta = !!(info && (info.genre || info.rating));
+  // Leave room under the title logo for the genre/rating line
+  if (logoImg) drawLogo(ctx, logoImg, L, !!tag, hasMeta ? L.metaLineH + 4 : 0);
+  if (hasMeta) drawMetaLine(ctx, L, info, !!tag, !!logoImg);
+  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank);
   if (rank) drawRank(ctx, rank, L);
   if (tag) drawTagPill(ctx, tag, L);   // last, so it blurs the finished image
   return canvas;
