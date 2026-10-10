@@ -104,6 +104,9 @@ async function getBackdropAssets(type, tmdbId, images) {
 // hanging from the top edge; bottom (default) keeps it at the bottom.
 const PILL_POSITION = String(process.env.PILL_POSITION || 'bottom').toLowerCase() === 'top' ? 'top' : 'bottom';
 // LANDSCAPE_PILL_POSITION does the same for landscape art; if unset it follows PILL_POSITION.
+// META_CHIP=on puts the genre + rating line on a dark rounded background.
+// Default (off) draws just the text with a soft shadow so it stays readable.
+const META_CHIP = String(process.env.META_CHIP || 'off').toLowerCase() === 'on';
 const LANDSCAPE_PILL_POSITION = process.env.LANDSCAPE_PILL_POSITION
   ? (String(process.env.LANDSCAPE_PILL_POSITION).toLowerCase() === 'top' ? 'top' : 'bottom')
   : PILL_POSITION;
@@ -270,16 +273,22 @@ function drawMetaChip(ctx, L, info, bottomY) {
   const x0 = (L.W - w) / 2;
   const top = bottomY - h;
 
-  // chip
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-  ctx.shadowBlur = 10;
-  ctx.fillStyle = 'rgba(12, 12, 16, 0.62)';
-  roundedRectPath(ctx, x0, top, w, h, h / 2);
-  ctx.fill();
-  ctx.shadowColor = 'transparent';
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  if (META_CHIP) {
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = 'rgba(12, 12, 16, 0.62)';
+    roundedRectPath(ctx, x0, top, w, h, h / 2);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  } else {
+    // no chip: a soft dark shadow behind the text keeps it readable on bright art
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 1;
+  }
 
   // text (faux-bold: fill + thin stroke in the same colour)
   let x = (L.W - contentW) / 2;
@@ -291,7 +300,10 @@ function drawMetaChip(ctx, L, info, bottomY) {
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
     ctx.fillText(t, x, cy, L.W - 80);
+    const shadow = ctx.shadowColor;
+    ctx.shadowColor = 'transparent'; // shadow only once, from the fill
     ctx.strokeText(t, x, cy, L.W - 80);
+    ctx.shadowColor = shadow;
   };
   if (genre) { boldText(genre, '#ffffff'); x += genreW; }
   if (dot) { boldText(dot, 'rgba(255, 255, 255, 0.7)'); x += dotW; }
