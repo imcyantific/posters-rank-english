@@ -11,6 +11,15 @@ const LAYOUTS = {
   backdrop: { S: 2, W: 960, H: 540, providerTop: 24, providerTopRanked: 140, providerSize: 52, metaFont: 22, metaChipH: 38, metaGap: 12, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
+// PILL_SIZE scales the status pill ("Now Streaming"): 1 = original size, 0.8 = default
+// (20% smaller so it covers less of the poster), 0.7 = smaller still.
+const PILL_SIZE = Math.min(1.5, Math.max(0.5, Number(process.env.PILL_SIZE) || 0.8));
+for (const L of Object.values(LAYOUTS)) {
+  L.pillH = Math.round(L.pillH * PILL_SIZE);
+  L.pillFont = Math.round(L.pillFont * PILL_SIZE);
+  L.pillR = Math.round(L.pillR * PILL_SIZE);
+}
+
 // Inter SemiBold = pill text. Bebas Neue = rank numbers.
 try {
   GlobalFonts.registerFromPath(path.join(__dirname, 'Inter-SemiBold.ttf'), 'Inter');
@@ -166,7 +175,7 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   ctx.font = `600 ${L.pillFont}px "Inter"`;
   const textW = ctx.measureText(label).width;
 
-  const pillW = Math.min(L.W - 60, Math.max(textW + 72, 230));
+  const pillW = Math.min(L.W - 60, Math.max(textW + 72 * PILL_SIZE, 230 * PILL_SIZE));
   const pillH = L.pillH;
   const x = Math.round((L.W - pillW) / 2);
   const atTop = position === 'top';
