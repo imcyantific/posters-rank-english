@@ -205,4 +205,5 @@ node -e "require('./index.js').listen(3000)"   # http://localhost:3000/manifest.
 - `index.js`: Express app: catalogs, daily list, image routes, warm-up.
 - `poster.js`: drawing with `@napi-rs/canvas` (layouts, pill, rank, logo, provider icon, genre/rating).
 - `tags.js`: decides the pill text from TMDB details.
+- `tmdb.js`: shared TMDB helpers: API calls (connections kept open), image downloads with time limits, a small in-memory cache, and the "best image" sorting.
 - When you change how images look, bump `IMG_VERSION` in `index.js`.

@@ -2,17 +2,17 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const { tmdbGet, memo, rankLogos } = require('./tmdb');
 const { generatePoster, generateBackdrop } = require('./poster');
 const { determineTag } = require('./tags');
 
 const app = express();
 app.use(cors());
 
-const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 36;
+const IMG_VERSION = 37;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -33,17 +33,11 @@ const RANKED_BACKGROUND = CATALOG_ART === 'ranked';
 // Set META_LOGO=off in Vercel to stop sending the "logo" field.
 const SEND_LOGO = String(process.env.META_LOGO || 'on').toLowerCase() !== 'off';
 
-const tmdb = {
-  headers: TMDB_API_KEY.startsWith('ey') ? { Authorization: `Bearer ${TMDB_API_KEY}` } : {},
-  params: TMDB_API_KEY.startsWith('ey') ? {} : { api_key: TMDB_API_KEY }
-};
-
 async function fetchDetails(tmdbType, tmdbId) {
-  const { data } = await axios.get(`https://api.themoviedb.org/3/${tmdbType}/${tmdbId}`, {
-    headers: tmdb.headers,
-    params: { ...tmdb.params, append_to_response: 'external_ids,images,watch/providers', include_image_language: 'en,null' }
+  return tmdbGet(`/${tmdbType}/${tmdbId}`, {
+    append_to_response: 'external_ids,images,watch/providers',
+    include_image_language: 'en,null'
   });
-  return data;
 }
 
 // ---------- One shared Top 10 list per day ----------
@@ -71,10 +65,7 @@ const DIGITAL_REGION = String(process.env.DIGITAL_REGION || '').toUpperCase();
 
 async function hasDigitalRelease(movieId) {
   try {
-    const { data } = await axios.get(`https://api.themoviedb.org/3/movie/${movieId}/release_dates`, {
-      headers: tmdb.headers,
-      params: tmdb.params
-    });
+    const data = await tmdbGet(`/movie/${movieId}/release_dates`);
     const now = Date.now();
     return (data.results || [])
       .filter(c => !DIGITAL_REGION || c.iso_3166_1 === DIGITAL_REGION)
@@ -86,10 +77,7 @@ async function hasDigitalRelease(movieId) {
 }
 
 async function fetchTrendingFromTmdb(tmdbType) {
-  const getPage = async page => (await axios.get(`https://api.themoviedb.org/3/trending/${tmdbType}/day`, {
-    headers: tmdb.headers,
-    params: { ...tmdb.params, page }
-  })).data.results || [];
+  const getPage = async page => (await tmdbGet(`/trending/${tmdbType}/day`, { page })).results || [];
 
   if (!(DIGITAL_ONLY && tmdbType === 'movie')) return (await getPage(1)).slice(0, 10);
 
@@ -151,10 +139,7 @@ async function addOriginalLanguageImages(details, tmdbType, tmdbId) {
   const hasEnglishPoster = (details.images?.posters || []).some(p => p.iso_639_1 === 'en');
   if (hasLogo && hasEnglishPoster) return details;
   try {
-    const { data } = await axios.get(`https://api.themoviedb.org/3/${tmdbType}/${tmdbId}/images`, {
-      headers: tmdb.headers,
-      params: { ...tmdb.params, include_image_language: lang }
-    });
+    const data = await tmdbGet(`/${tmdbType}/${tmdbId}/images`, { include_image_language: lang });
     details.images = {
       ...(details.images || {}),
       logos: [...(details.images?.logos || []), ...(data.logos || [])],
@@ -165,6 +150,15 @@ async function addOriginalLanguageImages(details, tmdbType, tmdbId) {
   }
   return details;
 }
+
+// Everything we need about a title in one go (details + original-language images).
+// Kept for 30 minutes, so the catalog, both render routes, the Custom URL and the warm-up
+// don't each ask TMDB for the same title. Tags still update: they only change per day.
+const getDetails = memo(async (tmdbType, tmdbId) => {
+  const details = await fetchDetails(tmdbType, tmdbId);
+  return addOriginalLanguageImages(details, tmdbType, tmdbId);
+}, 30 * 60 * 1000);
+const loadDetails = (tmdbType, tmdbId) => getDetails(`${tmdbType}:${tmdbId}`, tmdbType, tmdbId);
 
 // ---------- Poster info stack (provider icon + genre + rating, top-left) ----------
 // POSTER_INFO=off hides it. PROVIDER_REGION picks whose streaming services to show
@@ -203,22 +197,16 @@ function buildReleaseInfo(details, tmdbType) {
   return `${start}-`;
 }
 
-// Best English title logo from TMDB (most votes first), falling back to any language.
+// Best title logo for the hero banner (English first, same choice as on the posters).
 function pickLogo(details) {
-  const logos = (details.images?.logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg'));
-  const byVotes = (a, b) => (b.vote_average || 0) - (a.vote_average || 0);
-  const en = logos.filter(l => l.iso_639_1 === 'en').sort(byVotes);
-  const neutral = logos.filter(l => !l.iso_639_1).sort(byVotes);
-  const other = logos.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(byVotes);
-  const best = en[0] || neutral[0] || other[0];
+  const best = rankLogos(details.images?.logos)[0];
   return best ? `https://image.tmdb.org/t/p/w500${best.file_path}` : undefined;
 }
 
 async function buildMeta(item, index, type, tmdbType) {
   let details = item; // fallback if the details call fails
   try {
-    details = await fetchDetails(tmdbType, item.id);
-    await addOriginalLanguageImages(details, tmdbType, item.id);
+    details = await loadDetails(tmdbType, item.id);
   } catch (e) {
     console.error(`Details failed for ${item.id}:`, e.message);
   }
@@ -328,8 +316,7 @@ app.get('/render-poster', async (req, res) => {
   // One details call gives the images, genre, rating and streaming providers
   let details = null;
   try {
-    details = await fetchDetails(type === 'tv' ? 'tv' : 'movie', tmdbId);
-    await addOriginalLanguageImages(details, type === 'tv' ? 'tv' : 'movie', tmdbId);
+    details = await loadDetails(type === 'tv' ? 'tv' : 'movie', tmdbId);
   } catch (e) {
     console.error(`Details failed for poster ${tmdbId}:`, e.message);
   }
@@ -345,8 +332,7 @@ app.get('/render-backdrop', async (req, res) => {
   // One details call gives the images, genre, rating and streaming providers
   let details = null;
   try {
-    details = await fetchDetails(type === 'tv' ? 'tv' : 'movie', tmdbId);
-    await addOriginalLanguageImages(details, type === 'tv' ? 'tv' : 'movie', tmdbId);
+    details = await loadDetails(type === 'tv' ? 'tv' : 'movie', tmdbId);
   } catch (e) {
     console.error(`Details failed for backdrop ${tmdbId}:`, e.message);
   }
@@ -370,34 +356,12 @@ app.get('/render-backdrop', async (req, res) => {
 
 // 5. Poster Provider Endpoint (IMDb / TMDB id -> poster with status tag)
 app.get('/poster/:id.jpg', async (req, res) => {
-  const { id } = req.params;
-  let tmdbId = id;
-  let type = 'movie';
-
   try {
-    if (id.startsWith('tt')) {
-      const findRes = await axios.get(
-        `https://api.themoviedb.org/3/find/${id}?external_source=imdb_id`,
-        { headers: tmdb.headers, params: tmdb.params }
-      );
-      const movieMatch = findRes.data.movie_results?.[0];
-      const tvMatch = findRes.data.tv_results?.[0];
-
-      if (movieMatch) { tmdbId = movieMatch.id; type = 'movie'; }
-      else if (tvMatch) { tmdbId = tvMatch.id; type = 'tv'; }
-      else return res.status(404).send('Media not found');
-    } else {
-      try {
-        await axios.get(`https://api.themoviedb.org/3/movie/${id}`, { headers: tmdb.headers, params: tmdb.params });
-        type = 'movie';
-      } catch (e) {
-        type = 'tv';
-      }
-    }
-
+    const resolved = await resolveTitle(req.params.id);
+    if (!resolved) return res.status(404).send('Media not found');
+    const { tmdbId, type } = resolved;
     // Full details are needed for Premiere / Finale / New Episode tags
-    const details = await fetchDetails(type, tmdbId);
-    await addOriginalLanguageImages(details, type, tmdbId);
+    const details = await loadDetails(type, tmdbId);
     const tag = determineTag(details, type);
     sendImage(res, await generatePoster(tmdbId, type, null, tag, { images: details.images, info: posterInfo(details) }));
   } catch (err) {
@@ -420,6 +384,11 @@ function typeFromHint(hint) {
   return null;
 }
 
+// IMDb -> TMDB ids never change, so remember them for a day.
+const DAY_MS = 24 * 3600 * 1000;
+const findImdb = memo(imdbId => tmdbGet(`/find/${imdbId}`, { external_source: 'imdb_id' }), DAY_MS, 2000);
+const checkExists = memo((type, id) => tmdbGet(`/${type}/${id}`), DAY_MS, 2000);
+
 // Accepts tt1234567, tt1234567:1:2 (episode), tmdb:123, or a plain number.
 async function resolveTitle(rawId, typeHint, tmdbHint) {
   let id = String(rawId).trim();
@@ -433,10 +402,7 @@ async function resolveTitle(rawId, typeHint, tmdbHint) {
 
   if (id.startsWith('tt')) {
     id = id.split(':')[0];
-    const { data } = await axios.get(`https://api.themoviedb.org/3/find/${id}`, {
-      headers: tmdb.headers,
-      params: { ...tmdb.params, external_source: 'imdb_id' }
-    });
+    const data = await findImdb(id, id);
     const movie = data.movie_results?.[0];
     const tv = data.tv_results?.[0];
     if (hinted === 'tv' && tv) return { tmdbId: tv.id, type: 'tv' };
@@ -450,7 +416,7 @@ async function resolveTitle(rawId, typeHint, tmdbHint) {
     const order = hinted ? [hinted] : ['movie', 'tv'];
     for (const type of order) {
       try {
-        await axios.get(`https://api.themoviedb.org/3/${type}/${id}`, { headers: tmdb.headers, params: tmdb.params });
+        await checkExists(`${type}:${id}`, type, id);
         return { tmdbId: id, type };
       } catch (e) { /* try the next type */ }
     }
@@ -475,8 +441,7 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     if (!resolved) throw new Error(`Could not find "${id}" on TMDB`);
 
     const { tmdbId, type } = resolved;
-    const [details, top10] = await Promise.all([fetchDetails(type, tmdbId), getTop10Ids(type)]);
-    await addOriginalLanguageImages(details, type, tmdbId);
+    const [details, top10] = await Promise.all([loadDetails(type, tmdbId), getTop10Ids(type)]);
     const tag = determineTag(details, type);
 
     const landscape = String(shape).toLowerCase() === 'landscape';
