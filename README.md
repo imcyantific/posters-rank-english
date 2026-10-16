@@ -70,6 +70,17 @@ Every poster in your other rows then gets the pill, provider icon, genre/rating 
 | `v` | any number | Cache buster. **Change it whenever you want apps to fetch fresh images.** |
 | `debug` | `1` | Shows the real error text instead of a broken image (for testing in a browser) |
 
+### Using it directly in Nuvio (instead of Xperience)
+Nuvio has its own **Custom Poster Source** (Profile → Poster Card Style). It needs a
+slightly different URL:
+```
+https://YOUR-APP.vercel.app/top10/{shape}/{imdb_id|tmdb_id}.jpg?type={type}&ranks=none&v=1
+```
+Why: in Nuvio, `{tmdb_id}` is only filled for titles whose ID starts with `tmdb:`. Most
+catalogs use IMDb IDs (`tt…`), so the Xperience URL leaves `{tmdb_id}` empty and Nuvio
+falls back to the plain poster. `{imdb_id|tmdb_id}` means "use whichever ID the title has".
+Titles with neither (e.g. `kitsu:` anime IDs) keep their normal poster.
+
 ### After any change: the refresh routine
 Apps remember images by their URL, so after a design or settings change:
 
