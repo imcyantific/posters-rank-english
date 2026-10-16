@@ -1,8 +1,6 @@
-const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
-const axios = require('axios');
+const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
-
-const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
+const { tmdbGet, fetchImage, byBest, sharpFirst, rankLogos } = require('./tmdb');
 
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
 const LAYOUTS = {
@@ -28,30 +26,7 @@ try {
   console.log('Font registration error:', e.message);
 }
 
-const auth = TMDB_API_KEY.startsWith('ey')
-  ? { headers: { Authorization: `Bearer ${TMDB_API_KEY}` }, params: {} }
-  : { headers: {}, params: { api_key: TMDB_API_KEY } };
-
-const byVotes = (a, b) => (b.vote_average || 0) - (a.vote_average || 0);
-
-async function getImages(type, tmdbId) {
-  const { data } = await axios.get(
-    `https://api.themoviedb.org/3/${type}/${tmdbId}/images`,
-    { ...auth, params: { ...auth.params, include_image_language: 'en,null' } }
-  );
-  return data;
-}
-
-// Logo preference: English, then language-neutral, then any other (e.g. the original
-// Japanese logo for anime). Many anime only have a Japanese-tagged logo on TMDB.
-function rankLogos(logos) {
-  const usable = (logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg'));
-  return [
-    ...usable.filter(l => l.iso_639_1 === 'en').sort(byVotes),
-    ...usable.filter(l => !l.iso_639_1).sort(byVotes),
-    ...usable.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(byVotes)
-  ];
-}
+const getImages = (type, tmdbId) => tmdbGet(`/${type}/${tmdbId}/images`, { include_image_language: 'en,null' });
 
 // POSTER_STYLE decides when to use a textless poster + our own logo above the pill:
 //   logo (default) -> only on ranked posters (Top 10), so the rank number never covers a
@@ -66,11 +41,11 @@ const POSTER_STYLE = String(process.env.POSTER_STYLE || 'logo').toLowerCase();
 
 async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const data = images || await getImages(type, tmdbId);
-  const posters = data.posters || [];
-  const english = posters.filter(p => p.iso_639_1 === 'en').sort(byVotes);
-  const textless = posters.filter(p => p.iso_639_1 === null).sort(byVotes);
+  const posters = sharpFirst(data.posters || [], 780); // we draw at 780 px wide
+  const english = posters.filter(p => p.iso_639_1 === 'en').sort(byBest);
+  const textless = posters.filter(p => p.iso_639_1 === null).sort(byBest);
   // Posters in another language (e.g. the Japanese poster of an anime) still show the title.
-  const foreign = posters.filter(p => p.iso_639_1 && p.iso_639_1 !== 'en').sort(byVotes);
+  const foreign = posters.filter(p => p.iso_639_1 && p.iso_639_1 !== 'en').sort(byBest);
   const logo = rankLogos(data.logos)[0];
 
   const useTextless = POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked);
@@ -80,7 +55,7 @@ async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const found = (english[0] || foreign[0] || textless[0] || posters[0])?.file_path;
   if (found) return { posterPath: found, logoPath: null };
 
-  const { data: details } = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}`, auth);
+  const details = await tmdbGet(`/${type}/${tmdbId}`);
   return { posterPath: details.poster_path, logoPath: null };
 }
 
@@ -89,11 +64,11 @@ async function getPosterAssets(type, tmdbId, images, ranked = false) {
 // that already has text, then any backdrop.
 async function getBackdropAssets(type, tmdbId, images) {
   const data = images || await getImages(type, tmdbId);
-  const backdrops = data.backdrops || [];
+  const backdrops = sharpFirst(data.backdrops || [], 1280);
   const logos = rankLogos(data.logos);
-  const textless = backdrops.filter(b => b.iso_639_1 === null).sort(byVotes);
-  const english = backdrops.filter(b => b.iso_639_1 === 'en').sort(byVotes);
-  const any = [...backdrops].sort(byVotes);
+  const textless = backdrops.filter(b => b.iso_639_1 === null).sort(byBest);
+  const english = backdrops.filter(b => b.iso_639_1 === 'en').sort(byBest);
+  const any = [...backdrops].sort(byBest);
 
   let backdropPath = null;
   let logoPath = null;
@@ -106,7 +81,7 @@ async function getBackdropAssets(type, tmdbId, images) {
   }
 
   if (!backdropPath) {
-    const { data: details } = await axios.get(`https://api.themoviedb.org/3/${type}/${tmdbId}`, auth);
+    const details = await tmdbGet(`/${type}/${tmdbId}`);
     backdropPath = details.backdrop_path;
   }
   return { backdropPath, logoPath };
@@ -410,18 +385,41 @@ function composeBackdrop(backdropImg, logoImg, rank, tag, info = null) {
   return canvas;
 }
 
-// Download an image with a time limit. If the big version is slow or fails, use the
-// smaller fallback so the render never times out. Vercel caches the finished image,
-// so this download only happens about once per title.
+// Download the big version of an image, but if it's slow or fails use the smaller one,
+// so a render never times out. Vercel caches the finished image, so this download only
+// happens about once per title.
 async function loadImageWithFallback(bigUrl, smallUrl, timeoutMs = 5000) {
   try {
-    const { data } = await axios.get(bigUrl, { responseType: 'arraybuffer', timeout: timeoutMs });
-    return await loadImage(Buffer.from(data));
+    return await fetchImage(bigUrl, timeoutMs);
   } catch (e) {
     console.error('Large image slow/failed, using smaller one:', e.message);
-    return loadImage(smallUrl);
+    return fetchImage(smallUrl);
   }
 }
+
+// There are only a few dozen streaming services, so keep their icons in memory
+// instead of downloading the same Netflix icon for every poster.
+const providerIcons = new Map();
+function loadProviderIcon(logoPath) {
+  if (!logoPath) return null;
+  if (!providerIcons.has(logoPath)) {
+    const p = fetchImage(`https://image.tmdb.org/t/p/w154${logoPath}`)
+      .catch(e => { console.error('Provider logo failed:', e.message); providerIcons.delete(logoPath); return null; });
+    providerIcons.set(logoPath, p);
+  }
+  return providerIcons.get(logoPath);
+}
+
+function loadLogo(logoPath) {
+  if (!logoPath) return null;
+  return loadImageWithFallback(
+    `https://image.tmdb.org/t/p/original${logoPath}`,
+    `https://image.tmdb.org/t/p/w500${logoPath}`
+  ).catch(e => { console.error('Logo load failed:', e.message); return null; });
+}
+
+// Encode in the background (doesn't block other renders running at the same time).
+const toJpeg = canvas => canvas.encode('jpeg', 90);
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
@@ -429,20 +427,12 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
     if (!posterPath) throw new Error('Poster not found');
     const info = opts.info || null;
     const [posterImg, logoImg, providerImg] = await Promise.all([
-      loadImage(`https://image.tmdb.org/t/p/w780${posterPath}`),
-      logoPath
-        ? loadImageWithFallback(
-            `https://image.tmdb.org/t/p/original${logoPath}`,
-            `https://image.tmdb.org/t/p/w500${logoPath}`
-          ).catch(e => { console.error('Logo load failed:', e.message); return null; })
-        : null,
-      info?.providerLogoPath
-        ? loadImage(`https://image.tmdb.org/t/p/w154${info.providerLogoPath}`)
-            .catch(e => { console.error('Provider logo failed:', e.message); return null; })
-        : null
+      fetchImage(`https://image.tmdb.org/t/p/w780${posterPath}`),
+      loadLogo(logoPath),
+      loadProviderIcon(info?.providerLogoPath)
     ]);
     const infoForDraw = info ? { genre: info.genre, rating: info.rating, providerImg } : null;
-    return composePoster(posterImg, rank, tag, logoImg, infoForDraw).toBuffer('image/jpeg', 90);
+    return await toJpeg(composePoster(posterImg, rank, tag, logoImg, infoForDraw));
   } catch (err) {
     console.error('Error generating poster:', err.message);
     return null;
@@ -453,7 +443,6 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
   try {
     const { backdropPath, logoPath } = await getBackdropAssets(type, tmdbId, opts.images);
     if (!backdropPath) throw new Error('Backdrop not found');
-    // Download backdrop, logo and provider icon at the same time.
     const info = opts.info || null;
     const [backdropImg, logoImg, providerImg] = await Promise.all([
       // Full-size backdrop for a sharp 1920x1080 render; falls back to w1280 if slow.
@@ -461,20 +450,11 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
         `https://image.tmdb.org/t/p/original${backdropPath}`,
         `https://image.tmdb.org/t/p/w1280${backdropPath}`
       ),
-      logoPath
-        ? loadImageWithFallback(
-            `https://image.tmdb.org/t/p/original${logoPath}`,
-            `https://image.tmdb.org/t/p/w500${logoPath}`
-          )
-            .catch(e => { console.error('Logo load failed:', e.message); return null; })
-        : null,
-      info?.providerLogoPath
-        ? loadImage(`https://image.tmdb.org/t/p/w154${info.providerLogoPath}`)
-            .catch(e => { console.error('Provider logo failed:', e.message); return null; })
-        : null
+      loadLogo(logoPath),
+      loadProviderIcon(info?.providerLogoPath)
     ]);
     const infoForDraw = info ? { genre: info.genre, rating: info.rating, providerImg } : null;
-    return composeBackdrop(backdropImg, logoImg, rank, tag, infoForDraw).toBuffer('image/jpeg', 90);
+    return await toJpeg(composeBackdrop(backdropImg, logoImg, rank, tag, infoForDraw));
   } catch (err) {
     console.error('Error generating backdrop:', err.message);
     if (opts.throwErrors) throw err;   // used by ?debug=1 so you can see the real error
