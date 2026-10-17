@@ -5,9 +5,18 @@ const { tmdbGet, fetchImage, byBest, sharpFirst, rankLogos } = require('./tmdb')
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
+  // Poster = 780x1170. Landscape S is set by IMAGE_QUALITY below.
   poster:   { S: 1.3, W: 600, H: 900, providerTop: 26, providerTopRanked: 210, providerSize: 60, metaFont: 25, metaChipH: 42, metaGap: 14, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, shiftForTopPill: true, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
   backdrop: { S: 2, W: 960, H: 540, providerTop: 24, providerTopRanked: 140, providerSize: 52, metaFont: 22, metaChipH: 38, metaGap: 12, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
+
+// IMAGE_QUALITY: high (default) -> landscape 1920x1080, JPEG 92
+//                balanced       -> landscape 1280x720, JPEG 85 (about 3x smaller files, for
+//                                  when Vercel's free 10 GB "Fast Origin Transfer" runs low)
+// Either way we start from TMDB's full-size originals; those downloads don't count toward
+// that limit, only the finished image we send does. JPEG_QUALITY (60-95) overrides the JPEG part.
+const IMAGE_QUALITY = String(process.env.IMAGE_QUALITY || 'high').toLowerCase() === 'balanced' ? 'balanced' : 'high';
+LAYOUTS.backdrop.S = IMAGE_QUALITY === 'high' ? 2 : 4 / 3;
 
 // PILL_SIZE scales the status pill ("Now Streaming"): 1 = original size, 0.8 = default
 // (20% smaller so it covers less of the poster), 0.7 = smaller still.
@@ -346,7 +355,16 @@ function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
 // Shared layout for posters and landscape art. Bottom stack, from the bottom edge up:
 // [pill] -> [genre/rating chip] -> [title logo]. With the pill on top, the rank number and
 // provider icon move down to clear it.
+// RANK_STYLE: pill (default) -> the rank goes in the status pill as "Top 1 Today"
+//                                (replacing the status text) and no big number is drawn.
+//             number         -> big rank number on the side + the normal status pill.
+const RANK_STYLE = String(process.env.RANK_STYLE || 'pill').toLowerCase() === 'number' ? 'number' : 'pill';
+
 function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
+  if (rank && RANK_STYLE === 'pill') {
+    tag = `Top ${rank} Today`;
+    rank = null; // no side number; the provider icon moves up into the corner
+  }
   const pillTop = pillPosition === 'top' && !!tag;
   const pillBottom = !!tag && !pillTop;
   const hasMeta = !!(info && (info.genre || info.rating));
@@ -419,7 +437,9 @@ function loadLogo(logoPath) {
 }
 
 // Encode in the background (doesn't block other renders running at the same time).
-const toJpeg = canvas => canvas.encode('jpeg', 90);
+const JPEG_QUALITY = Math.min(95, Math.max(60,
+  Number(process.env.JPEG_QUALITY) || (IMAGE_QUALITY === 'high' ? 92 : 85)));
+const toJpeg = canvas => canvas.encode('jpeg', JPEG_QUALITY);
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
@@ -427,7 +447,12 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
     if (!posterPath) throw new Error('Poster not found');
     const info = opts.info || null;
     const [posterImg, logoImg, providerImg] = await Promise.all([
-      fetchImage(`https://image.tmdb.org/t/p/w780${posterPath}`),
+      // Shrinking the full-size original gives a sharper poster than TMDB's w780 copy
+      // (which is already compressed once). Falls back to w780 if it's slow.
+      loadImageWithFallback(
+        `https://image.tmdb.org/t/p/original${posterPath}`,
+        `https://image.tmdb.org/t/p/w780${posterPath}`
+      ),
       loadLogo(logoPath),
       loadProviderIcon(info?.providerLogoPath)
     ]);
@@ -445,7 +470,7 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
     if (!backdropPath) throw new Error('Backdrop not found');
     const info = opts.info || null;
     const [backdropImg, logoImg, providerImg] = await Promise.all([
-      // Full-size backdrop for a sharp 1920x1080 render; falls back to w1280 if slow.
+      // Full-size original, shrunk to our size; falls back to w1280 if slow.
       loadImageWithFallback(
         `https://image.tmdb.org/t/p/original${backdropPath}`,
         `https://image.tmdb.org/t/p/w1280${backdropPath}`

@@ -109,6 +109,7 @@ All optional. Leave a variable out to get the default.
 ### Poster look
 | Variable | Default | Options |
 |---|---|---|
+| `RANK_STYLE` | `pill` | `pill`: Top 10 rank shown in the pill as **Top 1 Today** (no side number) · `number`: big rank number on the side + normal status pill |
 | `POSTER_STYLE` | `logo` | `logo`: textless poster + drawn title logo, only on ranked Top 10 posters · `always`: on every poster · `original`: never, always the normal poster |
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
@@ -123,6 +124,9 @@ All optional. Leave a variable out to get the default.
 |---|---|---|
 | `CRON_SECRET` | *(none)* | Required by `/warm` when set. Vercel sends it automatically |
 | `WARM_CUSTOM_URL` | *(none)* | Your Custom URL, identical to Xperience's (including `v=`), so the daily warm-up pre-renders those images too |
+| `CUSTOM_CACHE_DAYS` | `2` | How long Vercel keeps Custom URL images (without rank numbers) before re-drawing them (1–7). Higher = less Vercel usage; pills like *New Episode* update a bit later |
+| `IMAGE_QUALITY` | `high` | `high`: landscape 1920×1080, JPEG 92 · `balanced`: landscape 1280×720, JPEG 85 (about 3× smaller files; use it if Vercel usage gets close to the limit) |
+| `JPEG_QUALITY` | *(from `IMAGE_QUALITY`)* | Override the JPEG quality (60–95). Lower = smaller files and less Vercel usage |
 
 ---
 
@@ -163,6 +167,14 @@ On the Vercel Hobby plan crons run once a day and may run up to an hour late.
 The server region is `syd1` (Sydney), the closest to New Zealand.
 
 ---
+
+### Vercel free plan usage
+The Hobby plan includes **10 GB of Fast Origin Transfer** over a **rolling 30 days**
+(each day's usage counts for 30 days, then drops off). Every *newly drawn* image counts;
+images served from Vercel's cache don't. To stay under it:
+- avoid unnecessary redeploys and `v=` bumps (each one redraws everything),
+- use the Custom URL in only one app (Xperience **or** Nuvio),
+- set `IMAGE_QUALITY=balanced`, raise `CUSTOM_CACHE_DAYS` or lower `JPEG_QUALITY` if you get close.
 
 ## 6. Endpoints
 
