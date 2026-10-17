@@ -12,7 +12,7 @@ app.use(cors());
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 37;
+const IMG_VERSION = 39;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -297,6 +297,7 @@ app.get('/catalog/:type/:id.json', async (req, res) => {
 // swr = after cdnAge runs out, Vercel keeps serving the old image instantly for this long
 // while it renders a fresh one in the background, so nobody waits for a re-render.
 const WEEK = 7 * 24 * 3600;
+const CUSTOM_CACHE_DAYS = Math.min(7, Math.max(1, Number(process.env.CUSTOM_CACHE_DAYS) || 2));
 
 function sendImage(res, buffer, maxAge = 86400, cdnAge = maxAge, swr = 0) {
   if (buffer) {
@@ -457,12 +458,15 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     if (!buffer) throw new Error('Image generation failed');
 
     if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));
-    // Vercel's CDN keeps it until midnight (when ranks/pills can change); the app re-checks hourly.
-    // Without a rank number, an old copy is still fine to show for a moment, so after midnight
-    // Vercel serves it instantly and refreshes it in the background (no slow first load).
-    // With a rank number we never serve a stale copy, so an old number can't appear.
+    // With a rank number: Vercel's CDN keeps it only until midnight (when ranks change),
+    // and never serves an old copy, so an old number can't appear.
+    // Without a rank: keep it CUSTOM_CACHE_DAYS (default 2), then serve the old copy
+    // instantly while refreshing in the background. Each refresh is a new render that
+    // counts toward Vercel's free 10 GB, so re-rendering every image every midnight was
+    // the biggest cost. Pills like "New Episode" may just update a day or so later.
     const untilMidnight = secondsUntilMidnight();
-    sendImage(res, buffer, debug ? 0 : Math.min(3600, untilMidnight), debug ? 0 : untilMidnight,
+    const cdnAge = rank ? untilMidnight : CUSTOM_CACHE_DAYS * 86400;
+    sendImage(res, buffer, debug ? 0 : Math.min(3600, untilMidnight), debug ? 0 : cdnAge,
       debug || rank ? 0 : WEEK);
   } catch (err) {
     console.error('Top10 art error:', err.message);
