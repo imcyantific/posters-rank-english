@@ -1,5 +1,6 @@
 // Disk cache for rendered images, for running on your own server (no Vercel CDN).
-// Turned on by setting CACHE_DIR (e.g. /cache in Docker).
+// Turned on by setting CACHE_DIR (e.g. /cache in Docker). CACHE_MAX_GB (default 2) caps
+// how much disk space it may use.
 //
 // Works like the CDN did: each image is saved under its exact URL and kept for the
 // response's s-maxage. After that, if the response allowed stale-while-revalidate, the
@@ -24,7 +25,8 @@ async function writeAtomic(file, data) {
   await fsp.rename(tmp, file);
 }
 
-function diskCache(dir, { selfUrl }) {
+function diskCache(dir, { selfUrl, maxGB = 2 }) {
+  const maxBytes = maxGB * 1e9;
   fs.mkdirSync(dir, { recursive: true });
   const refreshing = new Set();
   const files = url => {
@@ -41,25 +43,53 @@ function diskCache(dir, { selfUrl }) {
       .finally(() => refreshing.delete(url));
   }
 
-  // Remove files whose stale time has passed (runs at start and every 6 hours).
+  // Clean-up, at start and every hour:
+  //  1. delete images whose stale time has passed,
+  //  2. if the cache is still bigger than CACHE_MAX_GB, delete the ones closest to
+  //     expiring until it's under 90% of the limit, so the disk can never fill up.
   async function prune() {
     const now = Date.now();
-    let removed = 0;
+    const entries = [];
+    let expired = 0;
     for (const name of await fsp.readdir(dir).catch(() => [])) {
+      const full = path.join(dir, name);
+      if (name.endsWith('.tmp')) { // leftover from a crash
+        const st = await fsp.stat(full).catch(() => null);
+        if (st && now - st.mtimeMs > 3600 * 1000) await fsp.rm(full, { force: true });
+        continue;
+      }
       if (!name.endsWith('.json')) continue;
+      const img = full.replace(/\.json$/, '.img');
       try {
-        const meta = JSON.parse(await fsp.readFile(path.join(dir, name), 'utf8'));
+        const meta = JSON.parse(await fsp.readFile(full, 'utf8'));
         if (meta.staleUntil < now) {
-          await fsp.rm(path.join(dir, name), { force: true });
-          await fsp.rm(path.join(dir, name.replace(/\.json$/, '.img')), { force: true });
-          removed++;
+          await fsp.rm(full, { force: true });
+          await fsp.rm(img, { force: true });
+          expired++;
+        } else {
+          const st = await fsp.stat(img);
+          entries.push({ meta: full, img, size: st.size, staleUntil: meta.staleUntil });
         }
       } catch (e) { /* half-written file: ignore */ }
     }
-    if (removed) console.log(`Disk cache: removed ${removed} expired images`);
+    let total = entries.reduce((sum, e) => sum + e.size, 0);
+    let trimmed = 0;
+    if (total > maxBytes) {
+      entries.sort((a, b) => a.staleUntil - b.staleUntil);
+      for (const e of entries) {
+        if (total <= maxBytes * 0.9) break;
+        await fsp.rm(e.meta, { force: true });
+        await fsp.rm(e.img, { force: true });
+        total -= e.size;
+        trimmed++;
+      }
+    }
+    if (expired || trimmed) {
+      console.log(`Disk cache: removed ${expired} expired + ${trimmed} to stay under the size limit; now ${(total / 1e9).toFixed(2)} GB`);
+    }
   }
   prune();
-  setInterval(prune, 6 * 3600 * 1000).unref();
+  setInterval(prune, 3600 * 1000).unref();
 
   return async function diskCacheMiddleware(req, res, next) {
     if (req.method !== 'GET' || req.query.debug) return next();

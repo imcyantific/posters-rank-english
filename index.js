@@ -17,7 +17,10 @@ const CACHE_DIR = process.env.CACHE_DIR || '';
 if (CACHE_DIR) {
   const { diskCache } = require('./diskcache');
   const selfUrl = () => `http://127.0.0.1:${process.env.PORT || 3000}`;
-  app.use(['/render-poster', '/render-backdrop', '/poster', '/top10'], diskCache(path.join(CACHE_DIR, 'images'), { selfUrl }));
+  app.use(['/render-poster', '/render-backdrop', '/poster', '/top10'], diskCache(path.join(CACHE_DIR, 'images'), {
+    selfUrl,
+    maxGB: Math.max(0.1, Number(process.env.CACHE_MAX_GB) || 2)
+  }));
 }
 
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;

@@ -261,10 +261,11 @@ so those images are drawn again. The Top 10 catalog posters refresh by themselve
 | Variable | Default | Meaning |
 |---|---|---|
 | `CACHE_DIR` | `/cache` in Docker | Where images and the daily list are saved. Unset = no disk cache |
+| `CACHE_MAX_GB` | `2` | Most disk space the image cache may use. When it's full, the images closest to expiring are deleted first |
 | `PORT` | `3000` | Port inside the container |
 | `WARM_AT` | `00:10` | Time (in `RANK_TZ`) for the daily warm-up; `off` to disable |
 
-Expired images are deleted from disk automatically every 6 hours.
+Expired images are deleted from disk automatically every hour, and the cache is trimmed back under `CACHE_MAX_GB` every hour.
 
 ## 9. Run locally
 
