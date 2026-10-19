@@ -204,12 +204,74 @@ images served from Vercel's cache don't. To stay under it:
 
 ---
 
-## 8. Run locally
+## 8. Self-host on your own server (e.g. Oracle Cloud free tier)
+
+Vercel's free plan only allows **10 GB of freshly drawn images per 30 days**. A VPS like
+Oracle's Always Free **A1 (ARM)** has far more outgoing data, so you can keep the highest
+image quality. Everything works the same; three things Vercel did are built in instead:
+
+| On Vercel | On your server |
+|---|---|
+| Vercel's CDN keeps finished images | **Disk cache** in `CACHE_DIR` (same keep-for times) |
+| Vercel Cron runs the warm-up | `server.js` runs it daily at `WARM_AT` (default `00:10` in `RANK_TZ`) |
+| CDN shares one Top 10 list per day | The day's list is saved to disk (survives restarts) |
+
+### Steps (Docker)
+1. On the server:
+   ```bash
+   git clone https://github.com/imcyantific/posters-rank-english.git
+   cd posters-rank-english
+   nano .env
+   ```
+   Put your settings in `.env`, one per line, for example:
+   ```
+   TMDB_API_KEY=your_key
+   HOST_URL=https://posters.your-domain.com
+   CATALOG_ART=poster
+   CRON_SECRET=some-long-random-text
+   WARM_CUSTOM_URL=https://posters.your-domain.com/top10/poster/{imdb_id}.jpg?type={type}&tmdb={tmdb_id}&ranks=none&v=1
+   ```
+2. Start it:
+   ```bash
+   docker compose up -d --build
+   ```
+   It listens on `127.0.0.1:3010` (only reachable from the server itself).
+3. Give it an HTTPS address with the reverse proxy you already use for AIOStreams.
+   Point a (sub)domain's DNS at the server, then e.g. for **Caddy** add to your Caddyfile:
+   ```
+   posters.your-domain.com {
+       reverse_proxy 127.0.0.1:3010
+   }
+   ```
+   (If your proxy runs inside Docker, put both containers on the same Docker network and
+   use `posters-rank-english:3000` as the target instead of `127.0.0.1:3010`.)
+4. Check `https://posters.your-domain.com/manifest.json` opens in a browser.
+5. In Xperience: add the new manifest URL (and remove the Vercel one), and change the
+   Custom URL to the new domain. Keep `WARM_CUSTOM_URL` identical to it.
+
+### Updating
+```bash
+git pull && docker compose up -d --build
+```
+The disk cache is kept (in `./cache`), so nothing is redrawn after an update. That also
+means: after a **design** change, bump `&v=` in the Custom URL (and `WARM_CUSTOM_URL`)
+so those images are drawn again. The Top 10 catalog posters refresh by themselves.
+
+### Extra settings (self-host only)
+| Variable | Default | Meaning |
+|---|---|---|
+| `CACHE_DIR` | `/cache` in Docker | Where images and the daily list are saved. Unset = no disk cache |
+| `PORT` | `3000` | Port inside the container |
+| `WARM_AT` | `00:10` | Time (in `RANK_TZ`) for the daily warm-up; `off` to disable |
+
+Expired images are deleted from disk automatically every 6 hours.
+
+## 9. Run locally
 
 ```bash
 npm install
 echo "TMDB_API_KEY=your_key" > .env
-node -e "require('./index.js').listen(3000)"   # http://localhost:3000/manifest.json
+node server.js            # http://localhost:3000/manifest.json
 ```
 
 ## For developers
@@ -217,5 +279,7 @@ node -e "require('./index.js').listen(3000)"   # http://localhost:3000/manifest.
 - `index.js`: Express app: catalogs, daily list, image routes, warm-up.
 - `poster.js`: drawing with `@napi-rs/canvas` (layouts, pill, rank, logo, provider icon, genre/rating).
 - `tags.js`: decides the pill text from TMDB details.
+- `server.js`: starts the app as a normal server (Docker/VPS) and runs the daily warm-up.
+- `diskcache.js`: disk cache for images when self-hosting (`CACHE_DIR`).
 - `tmdb.js`: shared TMDB helpers: API calls (connections kept open), image downloads with time limits, a small in-memory cache, and the "best image" sorting.
 - When you change how images look, bump `IMG_VERSION` in `index.js`.

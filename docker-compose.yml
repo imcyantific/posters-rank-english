@@ -1,0 +1,12 @@
+services:
+  posters:
+    build: .
+    container_name: posters-rank-english
+    restart: unless-stopped
+    env_file: .env          # TMDB_API_KEY, HOST_URL, CATALOG_ART, ... (see README)
+    volumes:
+      - ./cache:/cache      # rendered images + the daily Top 10 list
+    ports:
+      # Only reachable from the server itself; your reverse proxy (Caddy/Traefik/nginx)
+      # forwards your HTTPS domain to it.
+      - "127.0.0.1:3010:3000"

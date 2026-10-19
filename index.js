@@ -2,12 +2,23 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { tmdbGet, memo, rankLogos } = require('./tmdb');
 const { generatePoster, generateBackdrop } = require('./poster');
 const { determineTag } = require('./tags');
 
 const app = express();
 app.use(cors());
+
+// Self-hosting (e.g. an Oracle VPS with Docker): CACHE_DIR turns on a disk cache for
+// the image routes, doing the job Vercel's CDN does on Vercel.
+const CACHE_DIR = process.env.CACHE_DIR || '';
+if (CACHE_DIR) {
+  const { diskCache } = require('./diskcache');
+  const selfUrl = () => `http://127.0.0.1:${process.env.PORT || 3000}`;
+  app.use(['/render-poster', '/render-backdrop', '/poster', '/top10'], diskCache(path.join(CACHE_DIR, 'images'), { selfUrl }));
+}
 
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
@@ -94,7 +105,34 @@ async function fetchTrendingFromTmdb(tmdbType) {
 
 const dailyCache = {}; // `${tmdbType}:${day}` -> items
 
+const dailyLoading = {};
+
+// Self-hosted: one server, so keep the day's list in a file (survives restarts,
+// so a restart mid-day can't reshuffle the ranks).
+async function getDailyTop10FromDisk(tmdbType) {
+  const day = dayKey();
+  const key = `${tmdbType}:${day}`;
+  if (dailyCache[key]) return dailyCache[key];
+  if (!dailyLoading[key]) {
+    dailyLoading[key] = (async () => {
+      const file = path.join(CACHE_DIR, 'lists', `top10-${tmdbType}-${day}.json`);
+      try {
+        return JSON.parse(await fs.promises.readFile(file, 'utf8'));
+      } catch (e) {
+        const items = await fetchTrendingFromTmdb(tmdbType);
+        await fs.promises.mkdir(path.dirname(file), { recursive: true });
+        await fs.promises.writeFile(file, JSON.stringify(items));
+        return items;
+      }
+    })().finally(() => { delete dailyLoading[key]; });
+  }
+  const items = await dailyLoading[key];
+  dailyCache[key] = items;
+  return items;
+}
+
 async function getDailyTop10(tmdbType) {
+  if (CACHE_DIR) return getDailyTop10FromDisk(tmdbType);
   const key = `${tmdbType}:${dayKey()}`;
   if (dailyCache[key]) return dailyCache[key];
   let items;
