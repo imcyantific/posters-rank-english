@@ -6,6 +6,11 @@ services:
     env_file: .env          # TMDB_API_KEY, HOST_URL, CATALOG_ART, ... (see README)
     volumes:
       - ./cache:/cache      # rendered images + the daily Top 10 list
+    logging:                # keep logs small (max 3 x 10 MB) so they can't fill the disk
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       # Only reachable from the server itself; your reverse proxy (Caddy/Traefik/nginx)
       # forwards your HTTPS domain to it.
