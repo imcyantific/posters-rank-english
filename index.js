@@ -26,7 +26,7 @@ if (CACHE_DIR) {
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 39;
+const IMG_VERSION = 40;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -47,11 +47,16 @@ const RANKED_BACKGROUND = CATALOG_ART === 'ranked';
 // Set META_LOGO=off in Vercel to stop sending the "logo" field.
 const SEND_LOGO = String(process.env.META_LOGO || 'on').toLowerCase() !== 'off';
 
+// Images are asked for separately (both requests run at the same time): TMDB keeps the
+// combined "details + images" answer cached much longer, so a poster you fix on TMDB
+// (e.g. a foreign poster marked "No Language") could keep showing for hours or a day.
 async function fetchDetails(tmdbType, tmdbId) {
-  return tmdbGet(`/${tmdbType}/${tmdbId}`, {
-    append_to_response: 'external_ids,images,watch/providers',
-    include_image_language: 'en,null'
-  });
+  const [details, images] = await Promise.all([
+    tmdbGet(`/${tmdbType}/${tmdbId}`, { append_to_response: 'external_ids,watch/providers' }),
+    tmdbGet(`/${tmdbType}/${tmdbId}/images`, { include_image_language: 'en,null' })
+  ]);
+  details.images = images;
+  return details;
 }
 
 // ---------- One shared Top 10 list per day ----------
