@@ -57,8 +57,16 @@ const byBest = (a, b) =>
   (b.vote_count || 0) - (a.vote_count || 0) ||
   (b.width || 0) - (a.width || 0);
 
-// Skip low-resolution uploads (they look blurry) unless that's all there is.
+// POSTER_SKIP: TMDB images to never use, e.g. a foreign poster marked "No Language".
+// Comma-separated file names as TMDB shows them: /b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg
+// Works instantly, while a fix on TMDB itself can take a day to reach apps.
+const SKIP = new Set(String(process.env.POSTER_SKIP || '').split(',')
+  .map(s => s.trim().replace(/^.*\//, '')).filter(Boolean).map(s => `/${s}`));
+
+// Leave out skipped images, and low-resolution uploads (they look blurry) unless
+// that's all there is.
 function sharpFirst(list, minWidth) {
+  list = list.filter(i => !SKIP.has(i.file_path));
   const sharp = list.filter(i => !i.width || i.width >= minWidth);
   return sharp.length ? sharp : list;
 }

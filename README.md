@@ -115,6 +115,7 @@ All optional. Leave a variable out to get the default.
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
 | `PILL_SIZE` | `0.8` | Pill size: `1` = big (old size), `0.7` = smaller. Range 0.5–1.5 |
 | `POSTER_INFO` | `on` | `off` hides the provider icon **and** genre/rating |
+| `POSTER_SKIP` | *(empty)* | TMDB images to never use, comma-separated, e.g. `/b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg` (also accepts the full image link). Clear the image cache after changing it |
 | `POSTER_META` | `on` | `off` hides only the genre/rating line (provider icon stays) |
 | `META_CHIP` | `off` | `on` puts the genre/rating on a dark rounded background |
 | `PROVIDER_REGION` | `NZ` | Whose streaming services to show (`US`, `AU` …). Falls back to US, then any country |
@@ -198,7 +199,7 @@ images served from Vercel's cache don't. To stay under it:
 | Xperience **Verify** says `Custom URL: HTTP 500` | Open the URL in a browser with `&debug=1` added to see the real error. Check Vercel → Logs. |
 | Numbers out of order / duplicated | Use `CATALOG_ART=poster` with `ranks=none`, then **Re-sync** in Xperience and reopen Nuvio. |
 | Changed a setting but nothing looks different | Redeploy on Vercel, bump `&v=`, Re-sync, reopen Nuvio (see [refresh routine](#after-any-change-the-refresh-routine)). |
-| Some posters have a foreign (e.g. Russian) title under the logo | TMDB tagged that poster as "textless" by mistake. Use `POSTER_STYLE=logo` (textless art only on ranked posters) or `original`. |
+| Some posters have a foreign (e.g. Russian) title under the logo | TMDB tagged that poster as "textless" by mistake. Fix its language on themoviedb.org (can take up to a day to reach apps), and add it to `POSTER_SKIP` for an instant fix. Or use `POSTER_STYLE=logo` (textless art only on ranked posters) or `original`. |
 | Foreign film / anime poster has no title | It uses the original-language poster when there's no English one. If TMDB has none with a title, there's nothing better to show. |
 | Images load slowly the first time | Set `CRON_SECRET` + `WARM_CUSTOM_URL` so the daily warm-up pre-renders them. |
 

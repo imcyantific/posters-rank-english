@@ -55,17 +55,24 @@ async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const textless = posters.filter(p => p.iso_639_1 === null).sort(byBest);
   // Posters in another language (e.g. the Japanese poster of an anime) still show the title.
   const foreign = posters.filter(p => p.iso_639_1 && p.iso_639_1 !== 'en').sort(byBest);
-  const logo = rankLogos(data.logos)[0];
+  const logoPaths = logoCandidates(rankLogos(data.logos));
 
   const useTextless = POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked);
-  if (useTextless && textless[0] && logo) {
-    return { posterPath: textless[0].file_path, logoPath: logo.file_path };
+  if (useTextless && textless[0] && logoPaths.length) {
+    return { posterPath: textless[0].file_path, logoPaths };
   }
   const found = (english[0] || foreign[0] || textless[0] || posters[0])?.file_path;
-  if (found) return { posterPath: found, logoPath: null };
+  if (found) return { posterPath: found, logoPaths: [] };
 
   const details = await tmdbGet(`/${type}/${tmdbId}`);
-  return { posterPath: details.poster_path, logoPath: null };
+  return { posterPath: details.poster_path, logoPaths: [] };
+}
+
+// The best logo plus a few backups in the same language, in case the best one is too
+// dark to read on the dark gradient (see loadLogo).
+function logoCandidates(logos) {
+  const lang = logos[0]?.iso_639_1 || null;
+  return logos.filter(l => (l.iso_639_1 || null) === lang).slice(0, 4).map(l => l.file_path);
 }
 
 // Backdrop: if the title has an English logo, use a textless backdrop and draw
@@ -80,11 +87,11 @@ async function getBackdropAssets(type, tmdbId, images) {
   const any = [...backdrops].sort(byBest);
 
   let backdropPath = null;
-  let logoPath = null;
+  let logoPaths = [];
 
   if (logos[0] && (textless[0] || any[0])) {
     backdropPath = (textless[0] || any[0]).file_path;
-    logoPath = logos[0].file_path;
+    logoPaths = logoCandidates(logos);
   } else {
     backdropPath = (english[0] || textless[0] || any[0])?.file_path || null;
   }
@@ -93,7 +100,7 @@ async function getBackdropAssets(type, tmdbId, images) {
     const details = await tmdbGet(`/${type}/${tmdbId}`);
     backdropPath = details.backdrop_path;
   }
-  return { backdropPath, logoPath };
+  return { backdropPath, logoPaths };
 }
 
 // PILL_POSITION=top puts the status pill (e.g. "Now Streaming") at the top of POSTERS,
@@ -428,12 +435,58 @@ function loadProviderIcon(logoPath) {
   return providerIcons.get(logoPath);
 }
 
-function loadLogo(logoPath) {
-  if (!logoPath) return null;
+function loadOneLogo(logoPath) {
   return loadImageWithFallback(
     `https://image.tmdb.org/t/p/original${logoPath}`,
     `https://image.tmdb.org/t/p/w500${logoPath}`
   ).catch(e => { console.error('Logo load failed:', e.message); return null; });
+}
+
+// How the logo looks: average brightness and colourfulness (0-1) of its visible pixels,
+// measured on a small copy.
+function logoTone(img) {
+  const w = 96;
+  const h = Math.max(1, Math.round(img.height * w / img.width));
+  const ctx = createCanvas(w, h).getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  const px = ctx.getImageData(0, 0, w, h).data;
+  let weight = 0, light = 0, colour = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    const a = px[i + 3] / 255;
+    if (a < 0.15) continue;
+    const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
+    light += a * (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    colour += a * (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+    weight += a;
+  }
+  return weight ? { light: light / weight, colour: colour / weight } : { light: 1, colour: 0 };
+}
+const isDark = img => logoTone(img).light < 0.18;
+
+// A black/grey logo redrawn in white (keeps its shape), for when there's no light one.
+function whiten(img) {
+  const canvas = createCanvas(img.width, img.height);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  ctx.globalCompositeOperation = 'source-in';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, img.width, img.height);
+  return canvas;
+}
+
+// Logos sit on a dark gradient, so a black logo is almost invisible. If the best one is
+// dark, use a light version of it when TMDB has one (e.g. Beast Race has black and
+// white logos); otherwise draw a black/grey logo in white. Coloured logos (e.g. a deep
+// red) are kept as they are.
+async function loadLogo(logoPaths) {
+  if (!logoPaths?.length) return null;
+  const [first, ...rest] = logoPaths;
+  const img = await loadOneLogo(first);
+  if (!img || !isDark(img)) return img;
+  for (const other of await Promise.all(rest.map(loadOneLogo))) {
+    if (other && !isDark(other)) return other;
+  }
+  return logoTone(img).colour < 0.2 ? whiten(img) : img;
 }
 
 // Encode in the background (doesn't block other renders running at the same time).
@@ -443,7 +496,7 @@ const toJpeg = canvas => canvas.encode('jpeg', JPEG_QUALITY);
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
-    const { posterPath, logoPath } = await getPosterAssets(type, tmdbId, opts.images, !!rank);
+    const { posterPath, logoPaths } = await getPosterAssets(type, tmdbId, opts.images, !!rank);
     if (!posterPath) throw new Error('Poster not found');
     const info = opts.info || null;
     const [posterImg, logoImg, providerImg] = await Promise.all([
@@ -453,7 +506,7 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
         `https://image.tmdb.org/t/p/original${posterPath}`,
         `https://image.tmdb.org/t/p/w780${posterPath}`
       ),
-      loadLogo(logoPath),
+      loadLogo(logoPaths),
       loadProviderIcon(info?.providerLogoPath)
     ]);
     const infoForDraw = info ? { genre: info.genre, rating: info.rating, providerImg } : null;
@@ -466,7 +519,7 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
 
 async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
-    const { backdropPath, logoPath } = await getBackdropAssets(type, tmdbId, opts.images);
+    const { backdropPath, logoPaths } = await getBackdropAssets(type, tmdbId, opts.images);
     if (!backdropPath) throw new Error('Backdrop not found');
     const info = opts.info || null;
     const [backdropImg, logoImg, providerImg] = await Promise.all([
@@ -475,7 +528,7 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
         `https://image.tmdb.org/t/p/original${backdropPath}`,
         `https://image.tmdb.org/t/p/w1280${backdropPath}`
       ),
-      loadLogo(logoPath),
+      loadLogo(logoPaths),
       loadProviderIcon(info?.providerLogoPath)
     ]);
     const infoForDraw = info ? { genre: info.genre, rating: info.rating, providerImg } : null;
