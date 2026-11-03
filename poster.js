@@ -463,21 +463,29 @@ function logoTone(img) {
 }
 const isDark = img => logoTone(img).light < 0.18;
 
-// A black/grey logo redrawn in white (keeps its shape), for when there's no light one.
-function whiten(img) {
+// For a dark logo with no light version: flip its black/grey parts to white/light grey
+// (keeping their shading) and leave coloured parts alone. So black text with a red
+// outline (e.g. Gachiakuta) becomes white text with the same red outline, and a coloured
+// logo (e.g. a deep red) stays as it is.
+function lightenGreys(img) {
   const canvas = createCanvas(img.width, img.height);
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0);
-  ctx.globalCompositeOperation = 'source-in';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, img.width, img.height);
+  const data = ctx.getImageData(0, 0, img.width, img.height);
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
+    if (Math.max(r, g, b) - Math.min(r, g, b) < 60) {
+      px[i] = 255 - r; px[i + 1] = 255 - g; px[i + 2] = 255 - b;
+    }
+  }
+  ctx.putImageData(data, 0, 0);
   return canvas;
 }
 
 // Logos sit on a dark gradient, so a black logo is almost invisible. If the best one is
 // dark, use a light version of it when TMDB has one (e.g. Beast Race has black and
-// white logos); otherwise draw a black/grey logo in white. Coloured logos (e.g. a deep
-// red) are kept as they are.
+// white logos); otherwise lighten its black/grey parts (see lightenGreys).
 async function loadLogo(logoPaths) {
   if (!logoPaths?.length) return null;
   const [first, ...rest] = logoPaths;
@@ -486,7 +494,7 @@ async function loadLogo(logoPaths) {
   for (const other of await Promise.all(rest.map(loadOneLogo))) {
     if (other && !isDark(other)) return other;
   }
-  return logoTone(img).colour < 0.2 ? whiten(img) : img;
+  return lightenGreys(img);
 }
 
 // Encode in the background (doesn't block other renders running at the same time).
