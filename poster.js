@@ -442,31 +442,37 @@ function loadOneLogo(logoPath) {
   ).catch(e => { console.error('Logo load failed:', e.message); return null; });
 }
 
-// How bright the logo is (0-1): the average of each visible pixel's brightest colour
-// channel, measured on a small copy. Using the brightest channel (not brightness as the
-// eye sees it) means a strong red counts as bright: Resident Evil's red logo scores 0.76,
-// while black scores 0 and black-with-a-red-outline (Gachiakuta) scores 0.13.
-function logoBrightness(img) {
+// A pixel counts as "coloured" when its strongest and weakest channels differ a lot
+// (red, blue, ...); otherwise it's black, grey or white.
+const isColoured = (r, g, b) => Math.max(r, g, b) - Math.min(r, g, b) >= 60;
+
+// How the logo looks, measured on a small copy:
+//   bright   (0-1) average of each visible pixel's brightest colour channel. Using the
+//            brightest channel (not brightness as the eye sees it) means a strong red
+//            counts as bright: Resident Evil's red logo scores 0.76, black scores 0.
+//   coloured (0-1) share of visible pixels that are coloured: 0 for a plain black logo,
+//            0.2 for Gachiakuta's black letters with a red outline.
+function logoTone(img) {
   const w = 96;
   const h = Math.max(1, Math.round(img.height * w / img.width));
   const ctx = createCanvas(w, h).getContext('2d');
   ctx.drawImage(img, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
-  let weight = 0, bright = 0;
+  let weight = 0, bright = 0, coloured = 0;
   for (let i = 0; i < px.length; i += 4) {
     const a = px[i + 3] / 255;
     if (a < 0.15) continue;
-    bright += a * Math.max(px[i], px[i + 1], px[i + 2]) / 255;
+    const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
+    bright += a * Math.max(r, g, b) / 255;
+    if (isColoured(r, g, b)) coloured += a;
     weight += a;
   }
-  return weight ? bright / weight : 1;
+  return weight ? { bright: bright / weight, coloured: coloured / weight } : { bright: 1, coloured: 0 };
 }
-const isDark = img => logoBrightness(img) < 0.3;
+const isDark = tone => tone.bright < 0.3;
 
-// For a dark logo with no light version: flip its black/grey parts to white/light grey
-// (keeping their shading) and leave coloured parts alone. So black text with a red
-// outline (e.g. Gachiakuta) becomes white text with the same red outline, and a coloured
-// logo (e.g. a deep red) stays as it is.
+// A black/grey logo redrawn light: its black/grey parts are flipped to white/light grey,
+// keeping their shading.
 function lightenGreys(img) {
   const canvas = createCanvas(img.width, img.height);
   const ctx = canvas.getContext('2d');
@@ -475,7 +481,7 @@ function lightenGreys(img) {
   const px = data.data;
   for (let i = 0; i < px.length; i += 4) {
     const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
-    if (Math.max(r, g, b) - Math.min(r, g, b) < 60) {
+    if (!isColoured(r, g, b)) {
       px[i] = 255 - r; px[i + 1] = 255 - g; px[i + 2] = 255 - b;
     }
   }
@@ -483,16 +489,20 @@ function lightenGreys(img) {
   return canvas;
 }
 
-// Logos sit on a dark gradient, so a black logo is almost invisible. If the best one is
-// dark (black or grey, not a strong colour like red), use a light version of it when TMDB has one (e.g. Beast Race has black and
-// white logos); otherwise lighten its black/grey parts (see lightenGreys).
+// Logos sit on a dark gradient, so a plain black logo is almost invisible. The best logo
+// is kept as it is when it's bright (e.g. Resident Evil's red one) or when it's dark but
+// has its own colours (e.g. Gachiakuta's black letters with a red outline). Only a plain
+// black/grey logo is swapped for a light version of it when TMDB has one (e.g. Beast Race
+// has black and white logos), or else redrawn light (see lightenGreys).
 async function loadLogo(logoPaths) {
   if (!logoPaths?.length) return null;
   const [first, ...rest] = logoPaths;
   const img = await loadOneLogo(first);
-  if (!img || !isDark(img)) return img;
+  if (!img) return null;
+  const tone = logoTone(img);
+  if (!isDark(tone) || tone.coloured >= 0.05) return img;
   for (const other of await Promise.all(rest.map(loadOneLogo))) {
-    if (other && !isDark(other)) return other;
+    if (other && !isDark(logoTone(other))) return other;
   }
   return lightenGreys(img);
 }
