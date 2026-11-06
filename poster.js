@@ -50,18 +50,22 @@ const POSTER_STYLE = String(process.env.POSTER_STYLE || 'always').toLowerCase();
 
 async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const data = images || await getImages(type, tmdbId);
-  const posters = sharpFirst(data.posters || [], 780); // we draw at 780 px wide
-  const english = posters.filter(p => p.iso_639_1 === 'en').sort(byBest);
-  const textless = posters.filter(p => p.iso_639_1 === null).sort(byBest);
+  // Skip blurry uploads within each language group (we draw at 780 px wide), so a smaller
+  // English poster still beats a sharp foreign one (e.g. Under Siege: a 500 px English
+  // poster vs. 900 px Spanish ones).
+  const posters = data.posters || [];
+  const group = test => sharpFirst(posters.filter(test), 780).sort(byBest);
+  const english = group(p => p.iso_639_1 === 'en');
+  const textless = group(p => p.iso_639_1 === null);
   // Posters in another language (e.g. the Japanese poster of an anime) still show the title.
-  const foreign = posters.filter(p => p.iso_639_1 && p.iso_639_1 !== 'en').sort(byBest);
+  const foreign = group(p => p.iso_639_1 && p.iso_639_1 !== 'en');
   const logoPaths = logoCandidates(rankLogos(data.logos));
 
   const useTextless = POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked);
   if (useTextless && textless[0] && logoPaths.length) {
     return { posterPath: textless[0].file_path, logoPaths };
   }
-  const found = (english[0] || foreign[0] || textless[0] || posters[0])?.file_path;
+  const found = (english[0] || foreign[0] || textless[0] || sharpFirst(posters, 780)[0])?.file_path;
   if (found) return { posterPath: found, logoPaths: [] };
 
   const details = await tmdbGet(`/${type}/${tmdbId}`);
@@ -80,11 +84,13 @@ function logoCandidates(logos) {
 // that already has text, then any backdrop.
 async function getBackdropAssets(type, tmdbId, images) {
   const data = images || await getImages(type, tmdbId);
-  const backdrops = sharpFirst(data.backdrops || [], 1280);
+  // Skip blurry uploads within each group (see getPosterAssets).
+  const backdrops = data.backdrops || [];
   const logos = rankLogos(data.logos);
-  const textless = backdrops.filter(b => b.iso_639_1 === null).sort(byBest);
-  const english = backdrops.filter(b => b.iso_639_1 === 'en').sort(byBest);
-  const any = [...backdrops].sort(byBest);
+  const group = test => sharpFirst(backdrops.filter(test), 1280).sort(byBest);
+  const textless = group(b => b.iso_639_1 === null);
+  const english = group(b => b.iso_639_1 === 'en');
+  const any = group(() => true);
 
   let backdropPath = null;
   let logoPaths = [];
@@ -347,10 +353,30 @@ function drawCover(ctx, img, L) {
 }
 
 // Title logo, centred above the pill, on a soft dark gradient so it stays readable.
+// How bright the lower part of the artwork is (0-1), where the logo and text go.
+// Measured on the finished drawing, every 6th pixel is plenty.
+function bottomBrightness(ctx, L) {
+  const w = Math.round(L.W * L.S);
+  const y0 = Math.round(L.H * L.gradTop * L.S);
+  const h = Math.round(L.H * L.S) - y0;
+  const px = ctx.getImageData(Math.round(w * 0.1), y0, Math.round(w * 0.8), h).data;
+  let sum = 0, n = 0;
+  for (let i = 0; i < px.length; i += 4 * 6) {
+    sum += (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) / 255;
+    n++;
+  }
+  return n ? sum / n : 0;
+}
+
+// Dark fade behind the logo. Bright artwork (e.g. A Dog's Perfect Christmas, a pale snowy
+// poster) gets a stronger, taller fade so a white logo still stands out; normal and dark
+// artwork keep the usual fade.
 function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
+  const bright = Math.min(1, Math.max(0, (bottomBrightness(ctx, L) - 0.35) / 0.3));
   const grad = ctx.createLinearGradient(0, L.H * L.gradTop, 0, L.H);
   grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  grad.addColorStop(1, 'rgba(0, 0, 0, 0.75)');
+  grad.addColorStop(0.45, `rgba(0, 0, 0, ${(0.34 + 0.3 * bright).toFixed(3)})`);
+  grad.addColorStop(1, `rgba(0, 0, 0, ${(0.75 + 0.17 * bright).toFixed(3)})`);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, L.W, L.H);
 
