@@ -113,6 +113,11 @@ async function getBackdropAssets(type, tmdbId, images) {
 // hanging from the top edge; bottom (default) keeps it at the bottom.
 const PILL_POSITION = String(process.env.PILL_POSITION || 'bottom').toLowerCase() === 'top' ? 'top' : 'bottom';
 // LANDSCAPE_PILL_POSITION does the same for landscape art; if unset it follows PILL_POSITION.
+// RATING_POSITION=top-right moves the TMDB rating out of the line under the logo into a
+// small dark badge in the top-right corner (level with the provider icon). Note: apps
+// like Nuvio draw their "watched" tick in that corner too. Default: bottom.
+const RATING_TOP = ['top-right', 'top', 'topright'].includes(String(process.env.RATING_POSITION || 'bottom').toLowerCase());
+
 // META_CHIP=on puts the genre + rating line on a dark rounded background.
 // Default (off) draws just the text with a soft shadow so it stays readable.
 const META_CHIP = String(process.env.META_CHIP || 'off').toLowerCase() === 'on';
@@ -389,6 +394,43 @@ function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
   ctx.drawImage(logoImg, (L.W - w) / 2, bottom - h, w, h);
 }
 
+// TMDB rating badge in the top-right corner: [TMDB logo] 7.5 on a dark rounded badge,
+// level with the provider icon in the top-left. The badge keeps it readable on bright
+// artwork (there's no dark fade at the top).
+function drawRatingBadge(ctx, L, rating, offsetY = 0) {
+  const h = Math.round(L.providerSize * 0.8);
+  const f = Math.round(h * 0.5);
+  const mark = h * 0.62;
+  const padX = h * 0.28;
+  const gap = f * 0.3;
+  ctx.save();
+  ctx.font = `600 ${f}px "Inter"`;
+  const textW = ctx.measureText(rating).width;
+  const w = padX + mark + gap + textW + padX;
+  const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
+  const y = L.providerTop + (L.providerSize - h) / 2 + offsetY;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 2;
+  ctx.fillStyle = 'rgba(12, 12, 16, 0.72)';
+  roundedRectPath(ctx, x, y, w, h, h * 0.3);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  const cy = y + h / 2;
+  drawTmdbMark(ctx, x + padX, cy, mark);
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 0.8;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(rating, x + padX + mark + gap, cy + 1);
+  ctx.strokeText(rating, x + padX + mark + gap, cy + 1);
+  ctx.restore();
+}
+
 // Pure drawing step (also used by tests with fake images).
 // Shared layout for posters and landscape art. Bottom stack, from the bottom edge up:
 // [pill] -> [genre/rating chip] -> [title logo]. With the pill on top, the rank number and
@@ -405,6 +447,8 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
   }
   const pillTop = pillPosition === 'top' && !!tag;
   const pillBottom = !!tag && !pillTop;
+  const topRating = RATING_TOP && info?.rating ? info.rating : null;
+  if (topRating) info = { ...info, rating: null }; // drawn in the corner instead
   const hasMeta = !!(info && (info.genre || info.rating));
   const chipBottom = (pillBottom ? L.H - L.pillH : L.H) - L.metaGap;
   const aboveChip = hasMeta ? L.metaChipH + L.metaGap : 0;
@@ -416,6 +460,7 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
   const topOffset = pillTop && L.shiftForTopPill && rank ? L.pillH + 4 : 0;
   if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset);
   if (rank) drawRank(ctx, rank, L, topOffset);
+  if (topRating) drawRatingBadge(ctx, L, topRating, (pillTop && L.shiftForTopPill ? L.pillH + 4 : 0));
   if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom');   // last, so it blurs the finished image
 }
 
