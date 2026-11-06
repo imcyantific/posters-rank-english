@@ -212,6 +212,8 @@ const loadDetails = (tmdbType, tmdbId) => getDetails(`${tmdbType}:${tmdbId}`, tm
 const POSTER_INFO = String(process.env.POSTER_INFO || 'on').toLowerCase() !== 'off';
 // POSTER_META=off hides just the genre + rating line (the provider icon stays).
 const POSTER_META = String(process.env.POSTER_META || 'on').toLowerCase() !== 'off';
+// POSTER_GENRE=off hides only the genre, leaving just the TMDB rating.
+const POSTER_GENRE = String(process.env.POSTER_GENRE || 'on').toLowerCase() !== 'off';
 const PROVIDER_REGION = String(process.env.PROVIDER_REGION || 'NZ').toUpperCase();
 
 function posterInfo(details) {
@@ -221,7 +223,7 @@ function posterInfo(details) {
   const provider = (region?.flatrate || [])
     .slice()
     .sort((a, b) => (a.display_priority ?? 99) - (b.display_priority ?? 99))[0];
-  const genre = POSTER_META ? details.genres?.[0]?.name || null : null;
+  const genre = POSTER_META && POSTER_GENRE ? details.genres?.[0]?.name || null : null;
   const rating = POSTER_META && details.vote_count > 0 && details.vote_average ? details.vote_average.toFixed(1) : null;
   return { providerLogoPath: provider?.logo_path || null, genre, rating };
 }

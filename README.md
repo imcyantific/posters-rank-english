@@ -117,6 +117,7 @@ All optional. Leave a variable out to get the default.
 | `POSTER_INFO` | `on` | `off` hides the provider icon **and** genre/rating |
 | `POSTER_SKIP` | *(empty)* | TMDB images to never use, comma-separated, e.g. `/b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg` (also accepts the full image link). Clear the image cache after changing it |
 | `POSTER_META` | `on` | `off` hides only the genre/rating line (provider icon stays) |
+| `POSTER_GENRE` | `on` | `off` hides the genre, so the line shows only the TMDB logo and rating |
 | `META_CHIP` | `off` | `on` puts the genre/rating on a dark rounded background |
 | `PROVIDER_REGION` | `NZ` | Whose streaming services to show (`US`, `AU` …). Falls back to US, then any country |
 
