@@ -1,4 +1,4 @@
-const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
+const { createCanvas, GlobalFonts, Path2D } = require('@napi-rs/canvas');
 const path = require('path');
 const { tmdbGet, fetchImage, byBest, sharpFirst, rankLogos } = require('./tmdb');
 
@@ -6,8 +6,8 @@ const { tmdbGet, fetchImage, byBest, sharpFirst, rankLogos } = require('./tmdb')
 const LAYOUTS = {
   // S = output pixels per layout unit, so artwork is sharp but sizes stay the same.
   // Poster = 780x1170. Landscape S is set by IMAGE_QUALITY below.
-  poster:   { S: 1.3, W: 600, H: 900, providerTop: 26, providerTopRanked: 210, providerSize: 60, metaFont: 25, metaChipH: 42, metaGap: 14, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, shiftForTopPill: true, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
-  backdrop: { S: 2, W: 960, H: 540, providerTop: 24, providerTopRanked: 140, providerSize: 52, metaFont: 22, metaChipH: 38, metaGap: 12, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
+  poster:   { S: 1.3, W: 600, H: 900, providerTop: 26, providerTopRanked: 210, providerSize: 60, metaFont: 30, metaChipH: 50, metaGap: 14, logoMaxW: 0.8, logoMaxH: 0.2, gradTop: 0.55, shiftForTopPill: true, rankFont: 220, rankX: 20, rankY: 0, pillH: 74, pillFont: 38, pillR: 22 },
+  backdrop: { S: 2, W: 960, H: 540, providerTop: 24, providerTopRanked: 140, providerSize: 52, metaFont: 26, metaChipH: 44, metaGap: 12, logoMaxW: 0.5, logoMaxH: 0.3, gradTop: 0.35, rankFont: 150, rankX: 30, rankY: 8, pillH: 74, pillFont: 40, pillR: 22 }
 };
 
 // IMAGE_QUALITY: high (default) -> landscape 1920x1080, JPEG 92
@@ -38,30 +38,34 @@ try {
 const getImages = (type, tmdbId) => tmdbGet(`/${type}/${tmdbId}/images`, { include_image_language: 'en,null' });
 
 // POSTER_STYLE decides when to use a textless poster + our own logo above the pill:
-//   logo (default) -> only on ranked posters (Top 10), so the rank number never covers a
-//                     printed title. Other posters keep the normal English poster, because
-//                     TMDB sometimes tags foreign-text posters as "no language".
-//   always         -> on every poster (also unranked ones from the Custom URL).
-//   original       -> never; always the normal poster.
+//   always (default) -> on every poster, so they all look the same and the genre/rating
+//                       line never covers a printed title. If TMDB tags a foreign-text
+//                       poster as "no language" by mistake, add it to POSTER_SKIP.
+//   logo             -> only on ranked posters (Top 10); others keep the normal poster.
+//   original         -> never; always the normal poster.
 // Normal poster = best English one, then one in the original language (has the title),
 // then textless, then any.
 // `images` can be passed in when we already have them (saves a TMDB call).
-const POSTER_STYLE = String(process.env.POSTER_STYLE || 'logo').toLowerCase();
+const POSTER_STYLE = String(process.env.POSTER_STYLE || 'always').toLowerCase();
 
 async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const data = images || await getImages(type, tmdbId);
-  const posters = sharpFirst(data.posters || [], 780); // we draw at 780 px wide
-  const english = posters.filter(p => p.iso_639_1 === 'en').sort(byBest);
-  const textless = posters.filter(p => p.iso_639_1 === null).sort(byBest);
+  // Skip blurry uploads within each language group (we draw at 780 px wide), so a smaller
+  // English poster still beats a sharp foreign one (e.g. Under Siege: a 500 px English
+  // poster vs. 900 px Spanish ones).
+  const posters = data.posters || [];
+  const group = test => sharpFirst(posters.filter(test), 780).sort(byBest);
+  const english = group(p => p.iso_639_1 === 'en');
+  const textless = group(p => p.iso_639_1 === null);
   // Posters in another language (e.g. the Japanese poster of an anime) still show the title.
-  const foreign = posters.filter(p => p.iso_639_1 && p.iso_639_1 !== 'en').sort(byBest);
+  const foreign = group(p => p.iso_639_1 && p.iso_639_1 !== 'en');
   const logoPaths = logoCandidates(rankLogos(data.logos));
 
   const useTextless = POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked);
   if (useTextless && textless[0] && logoPaths.length) {
     return { posterPath: textless[0].file_path, logoPaths };
   }
-  const found = (english[0] || foreign[0] || textless[0] || posters[0])?.file_path;
+  const found = (english[0] || foreign[0] || textless[0] || sharpFirst(posters, 780)[0])?.file_path;
   if (found) return { posterPath: found, logoPaths: [] };
 
   const details = await tmdbGet(`/${type}/${tmdbId}`);
@@ -80,11 +84,13 @@ function logoCandidates(logos) {
 // that already has text, then any backdrop.
 async function getBackdropAssets(type, tmdbId, images) {
   const data = images || await getImages(type, tmdbId);
-  const backdrops = sharpFirst(data.backdrops || [], 1280);
+  // Skip blurry uploads within each group (see getPosterAssets).
+  const backdrops = data.backdrops || [];
   const logos = rankLogos(data.logos);
-  const textless = backdrops.filter(b => b.iso_639_1 === null).sort(byBest);
-  const english = backdrops.filter(b => b.iso_639_1 === 'en').sort(byBest);
-  const any = [...backdrops].sort(byBest);
+  const group = test => sharpFirst(backdrops.filter(test), 1280).sort(byBest);
+  const textless = group(b => b.iso_639_1 === null);
+  const english = group(b => b.iso_639_1 === 'en');
+  const any = group(() => true);
 
   let backdropPath = null;
   let logoPaths = [];
@@ -107,6 +113,11 @@ async function getBackdropAssets(type, tmdbId, images) {
 // hanging from the top edge; bottom (default) keeps it at the bottom.
 const PILL_POSITION = String(process.env.PILL_POSITION || 'bottom').toLowerCase() === 'top' ? 'top' : 'bottom';
 // LANDSCAPE_PILL_POSITION does the same for landscape art; if unset it follows PILL_POSITION.
+// RATING_POSITION=top-right moves the TMDB rating out of the line under the logo into a
+// small dark badge in the top-right corner (level with the provider icon). Note: apps
+// like Nuvio draw their "watched" tick in that corner too. Default: bottom.
+const RATING_TOP = ['top-right', 'top', 'topright'].includes(String(process.env.RATING_POSITION || 'bottom').toLowerCase());
+
 // META_CHIP=on puts the genre + rating line on a dark rounded background.
 // Default (off) draws just the text with a soft shadow so it stays readable.
 const META_CHIP = String(process.env.META_CHIP || 'off').toLowerCase() === 'on';
@@ -212,16 +223,21 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   ctx.restore();
 }
 
-// Five-point star drawn as a shape (doesn't depend on the font having a ★ glyph)
-function drawStar(ctx, cx, cy, r) {
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const radius = i % 2 === 0 ? r : r * 0.45;
-    const a = -Math.PI / 2 + (i * Math.PI) / 5;
-    ctx.lineTo(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
-  }
-  ctx.closePath();
-  ctx.fill();
+// TMDB's logo (the stacked "THE MOVIE DB" mark) next to the rating, since the rating is
+// TMDB's user score. Shape from the simple-icons set (CC0), on a 24 x 24 grid; drawn in
+// TMDB's green-to-blue brand colours.
+const TMDB_MARK = new Path2D('M6.62 12a2.291 2.291 0 0 1 2.292-2.295h-.013A2.291 2.291 0 0 1 11.189 12a2.291 2.291 0 0 1-2.29 2.291h.013A2.291 2.291 0 0 1 6.62 12zm10.72-4.062h4.266a2.291 2.291 0 0 0 2.29-2.291 2.291 2.291 0 0 0-2.29-2.296H17.34a2.291 2.291 0 0 0-2.291 2.296 2.291 2.291 0 0 0 2.29 2.29zM2.688 20.645h8.285a2.291 2.291 0 0 0 2.291-2.292 2.291 2.291 0 0 0-2.29-2.295H2.687a2.291 2.291 0 0 0-2.291 2.295 2.291 2.291 0 0 0 2.29 2.292zm10.881-6.354h.81l1.894-4.586H15.19l-1.154 3.008h-.013l-1.135-3.008h-1.154zm4.208 0h1.011V9.705h-1.011zm2.878 0h3.235v-.93h-2.223v-.933h1.99v-.934h-1.99v-.855h2.107v-.934h-3.112zM1.31 7.941h1.01V4.247h1.31v-.895H0v.895h1.31zm3.747 0h1.011V5.959h1.958v1.984h1.011v-4.59h-1.01v1.711H6.061V3.351H5.057zm5.348 0h3.242v-.933H11.41v-.934h1.99v-.933h-1.99v-.856h2.107v-.934h-3.112zM.162 14.296h1.005v-3.52h.013l1.167 3.52h.765l1.206-3.52h.013v3.52h1.011v-4.59H3.82L2.755 12.7h-.013L1.686 9.705H.156zm14.534 6.353h1.641a3.188 3.188 0 0 0 .98-.149 2.531 2.531 0 0 0 .824-.437 2.123 2.123 0 0 0 .567-.713 2.193 2.193 0 0 0 .223-.983 2.399 2.399 0 0 0-.218-1.07 1.958 1.958 0 0 0-.586-.716 2.405 2.405 0 0 0-.873-.392 4.349 4.349 0 0 0-1.046-.13h-1.519zm1.013-3.656h.596a2.26 2.26 0 0 1 .606.08 1.514 1.514 0 0 1 .503.244 1.167 1.167 0 0 1 .34.412 1.28 1.28 0 0 1 .13.587 1.546 1.546 0 0 1-.13.658 1.127 1.127 0 0 1-.347.433 1.41 1.41 0 0 1-.518.238 2.797 2.797 0 0 1-.649.07h-.538zm4.686 3.656h1.88a2.997 2.997 0 0 0 .613-.064 1.735 1.735 0 0 0 .554-.214 1.221 1.221 0 0 0 .402-.39 1.105 1.105 0 0 0 .155-.606 1.188 1.188 0 0 0-.071-.415 1.01 1.01 0 0 0-.204-.34 1.087 1.087 0 0 0-.317-.24 1.297 1.297 0 0 0-.413-.13v-.012a1.203 1.203 0 0 0 .575-.366.962.962 0 0 0 .216-.648 1.081 1.081 0 0 0-.149-.603 1.022 1.022 0 0 0-.389-.354 1.673 1.673 0 0 0-.54-.169 4.463 4.463 0 0 0-.6-.041h-1.712zm1.011-3.734h.687a1.4 1.4 0 0 1 .24.022.748.748 0 0 1 .22.075.432.432 0 0 1 .16.147.418.418 0 0 1 .061.236.47.47 0 0 1-.055.233.433.433 0 0 1-.146.156.62.62 0 0 1-.204.084 1.058 1.058 0 0 1-.23.026h-.745zm0 1.835h.765a1.96 1.96 0 0 1 .266.02 1.015 1.015 0 0 1 .26.07.519.519 0 0 1 .204.152.406.406 0 0 1 .08.26.481.481 0 0 1-.06.253.519.519 0 0 1-.16.168.62.62 0 0 1-.217.09 1.155 1.155 0 0 1-.237.027H21.4z');
+function drawTmdbMark(ctx, x, cy, size) {
+  const s = size / 24;
+  ctx.save();
+  ctx.translate(x, cy - size / 2);
+  ctx.scale(s, s);
+  const grad = ctx.createLinearGradient(0, 0, 24, 0);
+  grad.addColorStop(0, '#90cea1');
+  grad.addColorStop(1, '#01b4e4');
+  ctx.fillStyle = grad;
+  ctx.fill(TMDB_MARK);
+  ctx.restore();
 }
 
 function roundedRectPath(ctx, x, y, w, h, r) {
@@ -253,7 +269,7 @@ function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0) {
   ctx.restore();
 }
 
-// Genre + rating on a small dark chip ("Science Fiction  •  ★ 8.4"), centred.
+// Genre + rating ("Science Fiction  •  [TMDB logo] 8.4"), centred, optionally on a chip.
 // bottomY = where the chip's bottom edge goes. Text is drawn slightly bold so it reads
 // well on any artwork.
 function drawMetaChip(ctx, L, info, bottomY) {
@@ -266,11 +282,12 @@ function drawMetaChip(ctx, L, info, bottomY) {
 
   ctx.save();
   ctx.font = `600 ${f}px "Inter"`;
-  const starW = rating ? f * 1.05 : 0;
+  const markSize = f * 1.5;                // TMDB logo, a bit taller than the text
+  const markW = rating ? markSize + f * 0.3 : 0;
   const genreW = ctx.measureText(genre).width;
   const dotW = ctx.measureText(dot).width;
   const ratingW = ctx.measureText(rating).width;
-  const contentW = genreW + dotW + starW + ratingW;
+  const contentW = genreW + dotW + markW + ratingW;
   const padX = 20;
   const w = Math.min(L.W - 40, contentW + padX * 2);
   const x0 = (L.W - w) / 2;
@@ -287,10 +304,10 @@ function drawMetaChip(ctx, L, info, bottomY) {
     ctx.lineWidth = 1;
     ctx.stroke();
   } else {
-    // no chip: a soft dark shadow behind the text keeps it readable on bright art
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 1;
+    // no chip: a dark shadow behind the text keeps it readable on bright art
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 2;
   }
 
   // text (faux-bold: fill + thin stroke in the same colour)
@@ -311,9 +328,8 @@ function drawMetaChip(ctx, L, info, bottomY) {
   if (genre) { boldText(genre, '#ffffff'); x += genreW; }
   if (dot) { boldText(dot, 'rgba(255, 255, 255, 0.7)'); x += dotW; }
   if (rating) {
-    ctx.fillStyle = '#ffc93c';
-    drawStar(ctx, x + f * 0.42, cy - 1, f * 0.42);
-    x += starW;
+    drawTmdbMark(ctx, x, cy - 1, markSize);
+    x += markW;
     boldText(rating, '#ffffff');
   }
   ctx.restore();
@@ -342,10 +358,30 @@ function drawCover(ctx, img, L) {
 }
 
 // Title logo, centred above the pill, on a soft dark gradient so it stays readable.
+// How bright the lower part of the artwork is (0-1), where the logo and text go.
+// Measured on the finished drawing, every 6th pixel is plenty.
+function bottomBrightness(ctx, L) {
+  const w = Math.round(L.W * L.S);
+  const y0 = Math.round(L.H * L.gradTop * L.S);
+  const h = Math.round(L.H * L.S) - y0;
+  const px = ctx.getImageData(Math.round(w * 0.1), y0, Math.round(w * 0.8), h).data;
+  let sum = 0, n = 0;
+  for (let i = 0; i < px.length; i += 4 * 6) {
+    sum += (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) / 255;
+    n++;
+  }
+  return n ? sum / n : 0;
+}
+
+// Dark fade behind the logo. Bright artwork (e.g. A Dog's Perfect Christmas, a pale snowy
+// poster) gets a stronger, taller fade so a white logo still stands out; normal and dark
+// artwork keep the usual fade.
 function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
+  const bright = Math.min(1, Math.max(0, (bottomBrightness(ctx, L) - 0.35) / 0.3));
   const grad = ctx.createLinearGradient(0, L.H * L.gradTop, 0, L.H);
   grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  grad.addColorStop(1, 'rgba(0, 0, 0, 0.75)');
+  grad.addColorStop(0.45, `rgba(0, 0, 0, ${(0.34 + 0.3 * bright).toFixed(3)})`);
+  grad.addColorStop(1, `rgba(0, 0, 0, ${(0.75 + 0.17 * bright).toFixed(3)})`);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, L.W, L.H);
 
@@ -356,6 +392,43 @@ function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
   const h = logoImg.height * scale;
   const bottom = L.H - (hasTag ? L.pillH : 0) - 28 - reserveBelow;
   ctx.drawImage(logoImg, (L.W - w) / 2, bottom - h, w, h);
+}
+
+// TMDB rating badge in the top-right corner: [TMDB logo] 7.5 on a dark rounded badge,
+// level with the provider icon in the top-left. The badge keeps it readable on bright
+// artwork (there's no dark fade at the top).
+function drawRatingBadge(ctx, L, rating, offsetY = 0) {
+  const h = Math.round(L.providerSize * 0.8);
+  const f = Math.round(h * 0.5);
+  const mark = h * 0.62;
+  const padX = h * 0.28;
+  const gap = f * 0.3;
+  ctx.save();
+  ctx.font = `600 ${f}px "Inter"`;
+  const textW = ctx.measureText(rating).width;
+  const w = padX + mark + gap + textW + padX;
+  const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
+  const y = L.providerTop + (L.providerSize - h) / 2 + offsetY;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 2;
+  ctx.fillStyle = 'rgba(12, 12, 16, 0.72)';
+  roundedRectPath(ctx, x, y, w, h, h * 0.3);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  const cy = y + h / 2;
+  drawTmdbMark(ctx, x + padX, cy, mark);
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 0.8;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(rating, x + padX + mark + gap, cy + 1);
+  ctx.strokeText(rating, x + padX + mark + gap, cy + 1);
+  ctx.restore();
 }
 
 // Pure drawing step (also used by tests with fake images).
@@ -374,6 +447,8 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
   }
   const pillTop = pillPosition === 'top' && !!tag;
   const pillBottom = !!tag && !pillTop;
+  const topRating = RATING_TOP && info?.rating ? info.rating : null;
+  if (topRating) info = { ...info, rating: null }; // drawn in the corner instead
   const hasMeta = !!(info && (info.genre || info.rating));
   const chipBottom = (pillBottom ? L.H - L.pillH : L.H) - L.metaGap;
   const aboveChip = hasMeta ? L.metaChipH + L.metaGap : 0;
@@ -385,6 +460,7 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
   const topOffset = pillTop && L.shiftForTopPill && rank ? L.pillH + 4 : 0;
   if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset);
   if (rank) drawRank(ctx, rank, L, topOffset);
+  if (topRating) drawRatingBadge(ctx, L, topRating, (pillTop && L.shiftForTopPill ? L.pillH + 4 : 0));
   if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom');   // last, so it blurs the finished image
 }
 
@@ -442,31 +518,37 @@ function loadOneLogo(logoPath) {
   ).catch(e => { console.error('Logo load failed:', e.message); return null; });
 }
 
-// How the logo looks: average brightness and colourfulness (0-1) of its visible pixels,
-// measured on a small copy.
+// A pixel counts as "coloured" when its strongest and weakest channels differ a lot
+// (red, blue, ...); otherwise it's black, grey or white.
+const isColoured = (r, g, b) => Math.max(r, g, b) - Math.min(r, g, b) >= 60;
+
+// How the logo looks, measured on a small copy:
+//   bright   (0-1) average of each visible pixel's brightest colour channel. Using the
+//            brightest channel (not brightness as the eye sees it) means a strong red
+//            counts as bright: Resident Evil's red logo scores 0.76, black scores 0.
+//   coloured (0-1) share of visible pixels that are coloured: 0 for a plain black logo,
+//            0.2 for Gachiakuta's black letters with a red outline.
 function logoTone(img) {
   const w = 96;
   const h = Math.max(1, Math.round(img.height * w / img.width));
   const ctx = createCanvas(w, h).getContext('2d');
   ctx.drawImage(img, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
-  let weight = 0, light = 0, colour = 0;
+  let weight = 0, bright = 0, coloured = 0;
   for (let i = 0; i < px.length; i += 4) {
     const a = px[i + 3] / 255;
     if (a < 0.15) continue;
     const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
-    light += a * (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-    colour += a * (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+    bright += a * Math.max(r, g, b) / 255;
+    if (isColoured(r, g, b)) coloured += a;
     weight += a;
   }
-  return weight ? { light: light / weight, colour: colour / weight } : { light: 1, colour: 0 };
+  return weight ? { bright: bright / weight, coloured: coloured / weight } : { bright: 1, coloured: 0 };
 }
-const isDark = img => logoTone(img).light < 0.18;
+const isDark = tone => tone.bright < 0.3;
 
-// For a dark logo with no light version: flip its black/grey parts to white/light grey
-// (keeping their shading) and leave coloured parts alone. So black text with a red
-// outline (e.g. Gachiakuta) becomes white text with the same red outline, and a coloured
-// logo (e.g. a deep red) stays as it is.
+// A black/grey logo redrawn light: its black/grey parts are flipped to white/light grey,
+// keeping their shading.
 function lightenGreys(img) {
   const canvas = createCanvas(img.width, img.height);
   const ctx = canvas.getContext('2d');
@@ -475,7 +557,7 @@ function lightenGreys(img) {
   const px = data.data;
   for (let i = 0; i < px.length; i += 4) {
     const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
-    if (Math.max(r, g, b) - Math.min(r, g, b) < 60) {
+    if (!isColoured(r, g, b)) {
       px[i] = 255 - r; px[i + 1] = 255 - g; px[i + 2] = 255 - b;
     }
   }
@@ -483,16 +565,20 @@ function lightenGreys(img) {
   return canvas;
 }
 
-// Logos sit on a dark gradient, so a black logo is almost invisible. If the best one is
-// dark, use a light version of it when TMDB has one (e.g. Beast Race has black and
-// white logos); otherwise lighten its black/grey parts (see lightenGreys).
+// Logos sit on a dark gradient, so a plain black logo is almost invisible. The best logo
+// is kept as it is when it's bright (e.g. Resident Evil's red one) or when it's dark but
+// has its own colours (e.g. Gachiakuta's black letters with a red outline). Only a plain
+// black/grey logo is swapped for a light version of it when TMDB has one (e.g. Beast Race
+// has black and white logos), or else redrawn light (see lightenGreys).
 async function loadLogo(logoPaths) {
   if (!logoPaths?.length) return null;
   const [first, ...rest] = logoPaths;
   const img = await loadOneLogo(first);
-  if (!img || !isDark(img)) return img;
+  if (!img) return null;
+  const tone = logoTone(img);
+  if (!isDark(tone) || tone.coloured >= 0.05) return img;
   for (const other of await Promise.all(rest.map(loadOneLogo))) {
-    if (other && !isDark(other)) return other;
+    if (other && !isDark(logoTone(other))) return other;
   }
   return lightenGreys(img);
 }
@@ -517,7 +603,12 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
       loadLogo(logoPaths),
       loadProviderIcon(info?.providerLogoPath)
     ]);
-    const infoForDraw = info ? { genre: info.genre, rating: info.rating, providerImg } : null;
+    // No logo of our own means the poster has its title printed in it (no textless art on
+    // TMDB); the genre/rating line would sit on top of that title, so leave it out.
+    const ownTitle = logoPaths.length > 0;
+    const infoForDraw = info
+      ? { genre: ownTitle ? info.genre : null, rating: ownTitle ? info.rating : null, providerImg }
+      : null;
     return await toJpeg(composePoster(posterImg, rank, tag, logoImg, infoForDraw));
   } catch (err) {
     console.error('Error generating poster:', err.message);

@@ -110,13 +110,15 @@ All optional. Leave a variable out to get the default.
 | Variable | Default | Options |
 |---|---|---|
 | `RANK_STYLE` | `pill` | `pill`: Top 10 rank shown in the pill as **Top 1 Today** (no side number) · `number`: big rank number on the side + normal status pill |
-| `POSTER_STYLE` | `logo` | `logo`: textless poster + drawn title logo, only on ranked Top 10 posters · `always`: on every poster · `original`: never, always the normal poster |
+| `POSTER_STYLE` | `always` | `always`: textless poster + drawn title logo on every poster (if TMDB has no textless poster, the normal one is used without the genre/rating line) · `logo`: only on ranked Top 10 posters · `original`: never, always the normal poster |
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
 | `PILL_SIZE` | `0.8` | Pill size: `1` = big (old size), `0.7` = smaller. Range 0.5–1.5 |
 | `POSTER_INFO` | `on` | `off` hides the provider icon **and** genre/rating |
 | `POSTER_SKIP` | *(empty)* | TMDB images to never use, comma-separated, e.g. `/b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg` (also accepts the full image link). Clear the image cache after changing it |
 | `POSTER_META` | `on` | `off` hides only the genre/rating line (provider icon stays) |
+| `POSTER_GENRE` | `on` | `off` hides the genre, so the line shows only the TMDB logo and rating |
+| `RATING_POSITION` | `bottom` | `top-right`: the TMDB rating goes in a small dark badge in the top-right corner instead of the line under the logo (note: Nuvio draws its "watched" tick in that corner) |
 | `META_CHIP` | `off` | `on` puts the genre/rating on a dark rounded background |
 | `PROVIDER_REGION` | `NZ` | Whose streaming services to show (`US`, `AU` …). Falls back to US, then any country |
 
