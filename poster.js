@@ -38,15 +38,15 @@ try {
 const getImages = (type, tmdbId) => tmdbGet(`/${type}/${tmdbId}/images`, { include_image_language: 'en,null' });
 
 // POSTER_STYLE decides when to use a textless poster + our own logo above the pill:
-//   logo (default) -> only on ranked posters (Top 10), so the rank number never covers a
-//                     printed title. Other posters keep the normal English poster, because
-//                     TMDB sometimes tags foreign-text posters as "no language".
-//   always         -> on every poster (also unranked ones from the Custom URL).
-//   original       -> never; always the normal poster.
+//   always (default) -> on every poster, so they all look the same and the genre/rating
+//                       line never covers a printed title. If TMDB tags a foreign-text
+//                       poster as "no language" by mistake, add it to POSTER_SKIP.
+//   logo             -> only on ranked posters (Top 10); others keep the normal poster.
+//   original         -> never; always the normal poster.
 // Normal poster = best English one, then one in the original language (has the title),
 // then textless, then any.
 // `images` can be passed in when we already have them (saves a TMDB call).
-const POSTER_STYLE = String(process.env.POSTER_STYLE || 'logo').toLowerCase();
+const POSTER_STYLE = String(process.env.POSTER_STYLE || 'always').toLowerCase();
 
 async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const data = images || await getImages(type, tmdbId);
@@ -532,7 +532,12 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
       loadLogo(logoPaths),
       loadProviderIcon(info?.providerLogoPath)
     ]);
-    const infoForDraw = info ? { genre: info.genre, rating: info.rating, providerImg } : null;
+    // No logo of our own means the poster has its title printed in it (no textless art on
+    // TMDB); the genre/rating line would sit on top of that title, so leave it out.
+    const ownTitle = logoPaths.length > 0;
+    const infoForDraw = info
+      ? { genre: ownTitle ? info.genre : null, rating: ownTitle ? info.rating : null, providerImg }
+      : null;
     return await toJpeg(composePoster(posterImg, rank, tag, logoImg, infoForDraw));
   } catch (err) {
     console.error('Error generating poster:', err.message);

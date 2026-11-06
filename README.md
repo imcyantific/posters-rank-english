@@ -110,7 +110,7 @@ All optional. Leave a variable out to get the default.
 | Variable | Default | Options |
 |---|---|---|
 | `RANK_STYLE` | `pill` | `pill`: Top 10 rank shown in the pill as **Top 1 Today** (no side number) · `number`: big rank number on the side + normal status pill |
-| `POSTER_STYLE` | `logo` | `logo`: textless poster + drawn title logo, only on ranked Top 10 posters · `always`: on every poster · `original`: never, always the normal poster |
+| `POSTER_STYLE` | `always` | `always`: textless poster + drawn title logo on every poster (if TMDB has no textless poster, the normal one is used without the genre/rating line) · `logo`: only on ranked Top 10 posters · `original`: never, always the normal poster |
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
 | `PILL_SIZE` | `0.8` | Pill size: `1` = big (old size), `0.7` = smaller. Range 0.5–1.5 |
