@@ -442,26 +442,26 @@ function loadOneLogo(logoPath) {
   ).catch(e => { console.error('Logo load failed:', e.message); return null; });
 }
 
-// How the logo looks: average brightness and colourfulness (0-1) of its visible pixels,
-// measured on a small copy.
-function logoTone(img) {
+// How bright the logo is (0-1): the average of each visible pixel's brightest colour
+// channel, measured on a small copy. Using the brightest channel (not brightness as the
+// eye sees it) means a strong red counts as bright: Resident Evil's red logo scores 0.76,
+// while black scores 0 and black-with-a-red-outline (Gachiakuta) scores 0.13.
+function logoBrightness(img) {
   const w = 96;
   const h = Math.max(1, Math.round(img.height * w / img.width));
   const ctx = createCanvas(w, h).getContext('2d');
   ctx.drawImage(img, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
-  let weight = 0, light = 0, colour = 0;
+  let weight = 0, bright = 0;
   for (let i = 0; i < px.length; i += 4) {
     const a = px[i + 3] / 255;
     if (a < 0.15) continue;
-    const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
-    light += a * (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-    colour += a * (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+    bright += a * Math.max(px[i], px[i + 1], px[i + 2]) / 255;
     weight += a;
   }
-  return weight ? { light: light / weight, colour: colour / weight } : { light: 1, colour: 0 };
+  return weight ? bright / weight : 1;
 }
-const isDark = img => logoTone(img).light < 0.18;
+const isDark = img => logoBrightness(img) < 0.3;
 
 // For a dark logo with no light version: flip its black/grey parts to white/light grey
 // (keeping their shading) and leave coloured parts alone. So black text with a red
@@ -484,7 +484,7 @@ function lightenGreys(img) {
 }
 
 // Logos sit on a dark gradient, so a black logo is almost invisible. If the best one is
-// dark, use a light version of it when TMDB has one (e.g. Beast Race has black and
+// dark (black or grey, not a strong colour like red), use a light version of it when TMDB has one (e.g. Beast Race has black and
 // white logos); otherwise lighten its black/grey parts (see lightenGreys).
 async function loadLogo(logoPaths) {
   if (!logoPaths?.length) return null;
