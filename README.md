@@ -4,10 +4,12 @@ A Stremio-style addon that gives you **Top 10 Movies Today** and **Top 10 TV Sho
 catalogs (from TMDB's daily trending list), plus a **poster image service** that draws:
 
 - the **rank number** (1–10)
-- a frosted **status pill**: *Now Streaming*, *Just Added*, *In Theaters*, *New Episode*,
-  *New Season*, *Premiere*, *Finale*, *Coming Oct 24* …
+- a frosted (or liquid glass) **status pill**: *Just Added*, *In Theaters*, *Now Streaming*,
+  *Rent or Buy*, *New Episode*, *New Ep Nov 12*, *New Season*, *Premiere*, *Finale*,
+  *Coming Oct 24*, *Limited Series*, *6 Seasons*, or for older films the year and running
+  time (*1999 · 2h 16m*) …
 - the **streaming provider icon** (Netflix, Disney+, Prime Video …)
-- **genre + rating** (e.g. `Animation • ★ 8.2`)
+- **genre + rating** (e.g. `Animation • [TMDB logo] 8.2`)
 - the **title logo** on a textless poster, for a clean look
 
 It runs on **Vercel** and is made to be used with **Xperience** (which hosts the
@@ -46,6 +48,21 @@ You do **not** need `PORT`. That's only for running locally.
 ---
 
 ## 2. Use it in Xperience + Nuvio
+
+### Easiest: the configure page
+Open **`https://YOUR-APP/configure`** (the root URL goes there too). Pick the look (pill
+style and size, rating position, genre, country, catalog art, …) with a live preview of
+today's Top 10, then copy:
+
+- your **manifest** link → add it in Xperience (or tap *Install in Stremio / Nuvio*),
+- your **Custom URL** → Xperience → poster settings → Custom URL,
+- the **`WARM_CUSTOM_URL=` line** → your server's `.env` (self-host), so the daily warm-up
+  draws the same images.
+
+Your choices are stored in the links themselves (`/c/<code>/…`), so there's nothing to
+change on the server. To change the look later, open the configure page again (or the
+*Configure* button in Stremio-style apps), copy the new links, and replace the old ones.
+Plain links without `/c/…` keep using the `.env` settings below.
 
 ### Add the catalogs
 In Xperience, add the addon with your manifest URL:
@@ -95,7 +112,9 @@ Apps remember images by their URL, so after a design or settings change:
 
 ## 3. All settings
 
-All optional. Leave a variable out to get the default.
+All optional. Leave a variable out to get the default. The look settings (catalog art,
+poster look, `PROVIDER_REGION`) can also be chosen per link on `/configure`; links made
+there ignore the `.env` values for those.
 
 ### Catalog
 | Variable | Default | Options |
@@ -114,6 +133,7 @@ All optional. Leave a variable out to get the default.
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
 | `PILL_SIZE` | `0.8` | Pill size: `1` = big (old size), `0.7` = smaller. Range 0.5–1.5 |
+| `PILL_STYLE` | `frosted` | `glass`: "liquid glass" pill, clear glass that bends the picture at its edges, with a bright rim. `frosted`: blurred, tinted glass |
 | `POSTER_INFO` | `on` | `off` hides the provider icon **and** genre/rating |
 | `POSTER_SKIP` | *(empty)* | TMDB images to never use, comma-separated, e.g. `/b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg` (also accepts the full image link). Clear the image cache after changing it |
 | `POSTER_META` | `on` | `off` hides only the genre/rating line (provider icon stays) |
@@ -183,6 +203,8 @@ images served from Vercel's cache don't. To stay under it:
 
 | URL | What it is |
 |---|---|
+| `/configure` | Settings page: pick the look, get your manifest + Custom URL |
+| `/c/<code>/…` | Any URL below with the settings from `/configure` |
 | `/manifest.json` | Addon manifest |
 | `/catalog/movie/top10_movies.json` · `/catalog/series/top10_series.json` | The Top 10 catalogs |
 | `/top10/{portrait\|landscape}/{imdb or tmdb id}.jpg?type=…&tmdb=…&ranks=…&v=…` | Custom URL poster provider |
@@ -191,6 +213,7 @@ images served from Vercel's cache don't. To stay under it:
 | `/poster/{id}.jpg` | Older poster endpoint (pill only, no rank) |
 | `/top10-list/{movie\|tv}/{YYYY-MM-DD}.json` | Today's frozen Top 10 list |
 | `/warm?type=movie\|series` | Daily warm-up (run by Vercel Cron) |
+| `/preview-titles` | Today's Top 10 names, for the configure page preview |
 
 ---
 

@@ -13,11 +13,15 @@ const WARM_AT = process.env.WARM_AT || '00:10';
 const RANK_TZ = process.env.RANK_TZ || 'Pacific/Auckland';
 let lastWarmDay = '';
 
+// If WARM_CUSTOM_URL is a link from /configure (…/c/<code>/top10/…), warm the catalog
+// with the same settings code, so the images your apps ask for are the ones drawn.
+const WARM_PREFIX = (/\/c\/[A-Za-z0-9_-]+(?=\/)/.exec(process.env.WARM_CUSTOM_URL || '') || [''])[0];
+
 async function warm() {
   const headers = process.env.CRON_SECRET ? { Authorization: `Bearer ${process.env.CRON_SECRET}` } : {};
   for (const type of ['movie', 'series']) {
     try {
-      const { data } = await axios.get(`http://127.0.0.1:${PORT}/warm?type=${type}`, { headers, timeout: 10 * 60 * 1000 });
+      const { data } = await axios.get(`http://127.0.0.1:${PORT}${WARM_PREFIX}/warm?type=${type}`, { headers, timeout: 10 * 60 * 1000 });
       console.log(`Warm-up ${type}: ${data.ok}/${data.images} images in ${data.ms} ms`);
     } catch (e) {
       console.error(`Warm-up ${type} failed:`, e.message);
