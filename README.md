@@ -114,6 +114,7 @@ All optional. Leave a variable out to get the default.
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
 | `PILL_SIZE` | `0.8` | Pill size: `1` = big (old size), `0.7` = smaller. Range 0.5–1.5 |
+| `PILL_STYLE` | `frosted` | `glass`: "liquid glass" pill, clear glass that bends the picture at its edges, with a bright rim. `frosted`: blurred, tinted glass |
 | `POSTER_INFO` | `on` | `off` hides the provider icon **and** genre/rating |
 | `POSTER_SKIP` | *(empty)* | TMDB images to never use, comma-separated, e.g. `/b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg` (also accepts the full image link). Clear the image cache after changing it |
 | `POSTER_META` | `on` | `off` hides only the genre/rating line (provider icon stays) |

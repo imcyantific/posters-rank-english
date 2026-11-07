@@ -21,6 +21,9 @@ LAYOUTS.backdrop.S = IMAGE_QUALITY === 'high' ? 2 : 4 / 3;
 // PILL_SIZE scales the status pill ("Now Streaming"): 1 = original size, 0.8 = default
 // (20% smaller so it covers less of the poster), 0.7 = smaller still.
 const PILL_SIZE = Math.min(1.5, Math.max(0.5, Number(process.env.PILL_SIZE) || 0.8));
+// PILL_STYLE: frosted (default) = blurred, tinted glass. glass = "liquid glass": clear,
+// lightly blurred glass that bends the picture at its edges, with a bright rim.
+const PILL_STYLE = String(process.env.PILL_STYLE || 'frosted').toLowerCase() === 'glass' ? 'glass' : 'frosted';
 for (const L of Object.values(LAYOUTS)) {
   L.pillH = Math.round(L.pillH * PILL_SIZE);
   L.pillFont = Math.round(L.pillFont * PILL_SIZE);
@@ -171,6 +174,109 @@ function blurRegion(srcCanvas, L, x, y, w, h, pad = 40, shrink = 10) {
   return { canvas: big, sx, sy, sw, sh };
 }
 
+// "Liquid glass" background for the pill: the picture behind it, lightly blurred and
+// bent near the edges like a curved lens (content just outside the edge is pulled in and
+// squeezed), plus a little extra brightness and colour. Works on real pixels.
+function drawLiquidGlass(ctx, L, x, y, w, h, r, atTop) {
+  const S = L.S;
+  const cw = ctx.canvas.width, ch = ctx.canvas.height;
+  const band = h * 0.5 * S;           // how far in from the edge the bending reaches
+  const shift = band * 0.75;          // strongest bend, at the very edge
+  const m = Math.ceil(shift) + 2;     // extra pixels around the pill we may sample from
+  const X0 = Math.max(0, Math.round(x * S) - m), Y0 = Math.max(0, Math.round(y * S) - m);
+  const X1 = Math.min(cw, Math.round((x + w) * S) + m), Y1 = Math.min(ch, Math.round((y + h) * S) + m);
+  const RW = X1 - X0, RH = Y1 - Y0;
+
+  // Light blur: shrink to a third and scale back up.
+  const small = createCanvas(Math.max(1, Math.round(RW / 3)), Math.max(1, Math.round(RH / 3)));
+  const sctx = small.getContext('2d');
+  sctx.imageSmoothingQuality = 'high';
+  sctx.drawImage(ctx.canvas, X0, Y0, RW, RH, 0, 0, small.width, small.height);
+  const soft = createCanvas(RW, RH);
+  const fctx = soft.getContext('2d');
+  fctx.imageSmoothingQuality = 'high';
+  fctx.drawImage(small, 0, 0, RW, RH);
+  const src = fctx.getImageData(0, 0, RW, RH).data;
+  const out = ctx.getImageData(X0, Y0, RW, RH);
+  const dst = out.data;
+
+  // Pill shape as a rounded rectangle. The edge that touches the picture's border is
+  // pushed outside it, so only the three visible edges bend.
+  const R = r * S;
+  const hw = (w * S) / 2;
+  const hh = (h * S) / 2 + R;
+  const cx = (x + w / 2) * S;
+  const cy = (atTop ? y * S - R : (y + h) * S + R) + (atTop ? hh - R : -(hh - R));
+  for (let py = 0; py < RH; py++) {
+    for (let px = 0; px < RW; px++) {
+      const gx = X0 + px + 0.5, gy = Y0 + py + 0.5;
+      const qx = Math.abs(gx - cx) - (hw - R), qy = Math.abs(gy - cy) - (hh - R);
+      const ox = Math.max(qx, 0), oy = Math.max(qy, 0);
+      const dist = Math.hypot(ox, oy) + Math.min(Math.max(qx, qy), 0) - R; // < 0 inside
+      if (dist > 0) continue;
+      const depth = -dist;
+      let sx = gx, sy = gy;
+      if (depth < band) {
+        // outward direction from the nearest edge
+        let nx, ny;
+        if (qx > 0 && qy > 0) { const l = Math.hypot(ox, oy) || 1; nx = ox / l; ny = oy / l; }
+        else if (qx > qy) { nx = 1; ny = 0; } else { nx = 0; ny = 1; }
+        nx *= Math.sign(gx - cx) || 1; ny *= Math.sign(gy - cy) || 1;
+        const t = 1 - depth / band;
+        const k = shift * t * t;
+        sx = gx + nx * k; sy = gy + ny * k;
+      }
+      const ix = Math.min(RW - 1, Math.max(0, Math.round(sx - X0 - 0.5)));
+      const iy = Math.min(RH - 1, Math.max(0, Math.round(sy - Y0 - 0.5)));
+      const si = (iy * RW + ix) * 4, di = (py * RW + px) * 4;
+      // a touch brighter and more colourful, like real glass catching light
+      const rr = src[si], gg = src[si + 1], bb = src[si + 2];
+      const lum = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
+      dst[di] = Math.min(255, (lum + (rr - lum) * 1.25) * 1.06 + 6);
+      dst[di + 1] = Math.min(255, (lum + (gg - lum) * 1.25) * 1.06 + 6);
+      dst[di + 2] = Math.min(255, (lum + (bb - lum) * 1.25) * 1.06 + 6);
+    }
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.putImageData(out, X0, Y0);
+  ctx.restore();
+}
+
+// Shine and rim on top of the liquid glass: a gentle dark wash (keeps the text readable),
+// a bright inner highlight along the top edge, and a light rim that fades at the sides.
+function drawGlassShine(ctx, x, y, w, h, r, atTop, shape) {
+  ctx.save();
+  shape(ctx, x, y, w, h, r);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+  ctx.fillRect(x, y, w, h);
+  // inner highlight: light hits the edge away from the picture border
+  const edgeY = atTop ? y + h : y;
+  const hl = ctx.createLinearGradient(0, edgeY, 0, atTop ? edgeY - h * 0.55 : edgeY + h * 0.55);
+  hl.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
+  hl.addColorStop(0.3, 'rgba(255, 255, 255, 0.1)');
+  hl.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = hl;
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+
+  // rim: bright at the curved corners, softer along the straight parts
+  const rim = ctx.createLinearGradient(x, 0, x + w, 0);
+  rim.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+  rim.addColorStop(0.18, 'rgba(255, 255, 255, 0.45)');
+  rim.addColorStop(0.5, 'rgba(255, 255, 255, 0.28)');
+  rim.addColorStop(0.82, 'rgba(255, 255, 255, 0.45)');
+  rim.addColorStop(1, 'rgba(255, 255, 255, 0.95)');
+  ctx.save();
+  ctx.strokeStyle = rim;
+  ctx.lineWidth = 2;
+  if (atTop) shape(ctx, x + 1, y - 1, w - 2, h, r);
+  else shape(ctx, x + 1, y + 1, w - 2, h, r);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // Frosted-glass tab at the bottom centre.
 function drawTagPill(ctx, text, L, position = 'bottom') {
   if (!text) return;
@@ -188,6 +294,10 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   const r = L.pillR;
   const shape = atTop ? roundedBottomRect : roundedTopRect;
 
+  if (PILL_STYLE === 'glass') {
+    drawLiquidGlass(ctx, L, x, y, pillW, pillH, r, atTop);
+    drawGlassShine(ctx, x, y, pillW, pillH, r, atTop, shape);
+  } else {
   // 1. Real blur of the image behind the pill
   const { canvas: blurred, sx, sy, sw, sh } = blurRegion(ctx.canvas, L, x, y, pillW, pillH);
   ctx.save();
@@ -211,6 +321,7 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   if (atTop) shape(ctx, x + 0.75, y - 0.75, pillW - 1.5, pillH, r);
   else shape(ctx, x + 0.75, y + 0.75, pillW - 1.5, pillH, r);
   ctx.stroke();
+  }
 
   // 4. Text
   ctx.fillStyle = '#ffffff';
