@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Top 10 Posters · Configure</title>
+<style>
+  :root {
+    --bg: #0d0e12;
+    --panel: #171920;
+    --panel-2: #20232c;
+    --line: #2b2f3a;
+    --text: #f3f4f7;
+    --muted: #9aa0ad;
+    --accent: #7c6cff;
+    --accent-2: #a89dff;
+    --ok: #3ecf8e;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 20px 16px 64px; }
+  header h1 { font-size: 24px; margin: 4px 0 4px; letter-spacing: -0.01em; }
+  header p { margin: 0 0 18px; color: var(--muted); }
+  .grid { display: grid; gap: 16px; }
+  @media (min-width: 860px) { .grid { grid-template-columns: 380px 1fr; align-items: start; } .sticky { position: sticky; top: 16px; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  .card + .card { margin-top: 16px; }
+
+  /* preview */
+  .preview-frame { position: relative; background: #000; border-radius: 12px; overflow: hidden; display: grid; place-items: center; }
+  .preview-frame.portrait { aspect-ratio: 2 / 3; max-width: 260px; margin-left: auto; margin-right: auto; }
+  @media (min-width: 860px) { .preview-frame.portrait { max-width: none; } }
+  .preview-frame.landscape { aspect-ratio: 16 / 9; }
+  .preview-frame img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .2s; }
+  .preview-frame.loading img { opacity: .45; }
+  .preview-msg { position: absolute; inset: auto 12px 12px 12px; font-size: 13px; color: var(--muted); text-align: center; }
+  .spinner { position: absolute; width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,.25); border-top-color: #fff; animation: spin .8s linear infinite; display: none; }
+  .preview-frame.loading .spinner { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row + .row, .preview-frame + .row, .row + .preview-frame { margin-top: 10px; }
+
+  /* controls */
+  .field { padding: 12px 0; border-top: 1px solid var(--line); }
+  .field:first-of-type { border-top: 0; padding-top: 0; }
+  .field-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .field label.name { font-weight: 600; }
+  .help { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .seg button { flex: 1 1 auto; min-width: 0; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .switch { position: relative; width: 48px; height: 28px; flex: none; }
+  .switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); transition: background .15s; pointer-events: none; }
+  .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #c8ccd6; transition: transform .15s, background .15s; }
+  .switch input:checked + span { background: var(--accent); border-color: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(20px); background: #fff; }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+  input[type=range] { width: 100%; margin-top: 10px; accent-color: var(--accent); }
+  select, input[type=text], input[type=number] { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; font: inherit; min-width: 0; }
+  select { flex: 1; }
+  .val { color: var(--accent-2); font-variant-numeric: tabular-nums; }
+  .dim { opacity: .45; pointer-events: none; }
+
+  /* outputs */
+  .out { margin-top: 10px; }
+  .out .label { font-weight: 600; margin-bottom: 4px; }
+  .copy { display: flex; gap: 8px; }
+  .copy code { flex: 1; min-width: 0; display: block; padding: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; color: #dfe2ea; }
+  .btn { padding: 9px 14px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; align-self: flex-start; text-decoration: none; display: inline-block; }
+  .btn.ghost { background: transparent; color: var(--accent-2); }
+  .btn.done { background: var(--ok); border-color: var(--ok); }
+  .opts { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 2px; align-items: center; color: var(--muted); font-size: 13px; }
+  .opts select { flex: none; padding: 6px 8px; }
+  .opts input { width: 70px; padding: 6px 8px; }
+  ol.steps { margin: 6px 0 0; padding-left: 20px; color: var(--muted); }
+  ol.steps li { margin: 4px 0; }
+  ol.steps b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Top 10 Posters</h1>
+    <p>Pick how your posters look, check the preview, then copy your links into Xperience or Nuvio.</p>
+  </header>
+
+  <div class="grid">
+    <div class="sticky">
+      <section class="card" aria-labelledby="pv-h">
+        <h2 id="pv-h">Preview</h2>
+        <div class="row">
+          <select id="pv-title" aria-label="Title to preview"><option>Loading today's Top 10…</option></select>
+        </div>
+        <div class="seg" id="pv-shape" role="group" aria-label="Shape">
+          <button type="button" data-v="portrait" aria-pressed="true">Portrait</button>
+          <button type="button" data-v="landscape" aria-pressed="false">Landscape</button>
+        </div>
+        <div class="preview-frame portrait" id="pv-frame" style="margin-top:10px">
+          <img id="pv-img" alt="Poster preview">
+          <div class="spinner" aria-hidden="true"></div>
+          <div class="preview-msg" id="pv-msg" hidden></div>
+        </div>
+        <p class="help">Shown as a Top 10 title, with its rank in the pill. Each change draws a fresh image, so it takes a second or two.</p>
+      </section>
+    </div>
+
+    <div>
+      <section class="card" aria-labelledby="pill-h"><h2 id="pill-h">Status pill</h2><div id="g-pill"></div></section>
+      <section class="card" aria-labelledby="info-h"><h2 id="info-h">Info on the art</h2><div id="g-info"></div></section>
+      <section class="card" aria-labelledby="art-h"><h2 id="art-h">Artwork</h2><div id="g-art"></div></section>
+
+      <section class="card" aria-labelledby="out-h">
+        <h2 id="out-h">Your links</h2>
+
+        <div class="out">
+          <div class="label">Addon manifest</div>
+          <div class="copy"><code id="o-manifest"></code><button class="btn" data-copy="o-manifest">Copy</button></div>
+          <div class="row" style="margin-top:8px"><a class="btn ghost" id="o-install" href="#">Install in Stremio / Nuvio</a></div>
+          <p class="help">In Xperience: add the addon with this link (remove the old one first). The Top 10 rows then use these settings.</p>
+        </div>
+
+        <div class="out" style="margin-top:18px">
+          <div class="label">Custom URL (poster provider)</div>
+          <div class="opts">
+            <label>Rank numbers
+              <select id="o-ranks">
+                <option value="none" selected>none (recommended)</option>
+                <option value="landscape">landscape only</option>
+                <option value="all">all</option>
+              </select>
+            </label>
+            <label>Version <input type="number" id="o-v" min="1" value="1" inputmode="numeric"></label>
+          </div>
+          <div class="copy"><code id="o-custom"></code><button class="btn" data-copy="o-custom">Copy</button></div>
+          <p class="help">Xperience → poster settings → Custom URL. Raise the version number whenever you change the look, so apps fetch fresh images.</p>
+        </div>
+
+        <div class="out" style="margin-top:18px">
+          <div class="label">For your server's .env</div>
+          <div class="copy"><code id="o-env"></code><button class="btn" data-copy="o-env">Copy</button></div>
+          <p class="help">Keeps the daily warm-up drawing the same images. Replace the old <code>WARM_CUSTOM_URL</code> line, then run <code>docker compose up -d</code>.</p>
+        </div>
+
+        <ol class="steps">
+          <li>Copy the <b>manifest</b> into Xperience (Add addon), then <b>Re-sync</b>.</li>
+          <li>Copy the <b>Custom URL</b> into Xperience's poster settings.</li>
+          <li>Paste the <b>.env line</b> on your server and run <code>docker compose up -d</code>.</li>
+        </ol>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var DATA = /*__DATA__*/null;
+  if (!DATA) { document.body.innerHTML = '<p style="padding:16px">Open this page from your addon server (/configure).</p>'; return; }
+  var state = Object.assign({}, DATA.options);
+
+  // ---- option list (what the page shows) ----
+  var GROUPS = {
+    'g-pill': [
+      { name: 'pillStyle', label: 'Style', type: 'seg', choices: [['frosted', 'Frosted'], ['glass', 'Liquid glass']] },
+      { name: 'pillSize', label: 'Size', type: 'range', min: 0.5, max: 1.5, step: 0.05 },
+      { name: 'pillPosition', label: 'Position on posters', type: 'seg', choices: [['bottom', 'Bottom'], ['top', 'Top']] },
+      { name: 'landscapePill', label: 'Position on landscape', type: 'seg', choices: [['same', 'Same as posters'], ['bottom', 'Bottom'], ['top', 'Top']] },
+      { name: 'rankStyle', label: 'Rank', type: 'seg', choices: [['pill', '“Top 1 Today” in the pill'], ['number', 'Big number']] }
+    ],
+    'g-info': [
+      { name: 'showInfo', label: 'Streaming service icon + rating', type: 'toggle', help: 'Netflix / Disney+ … icon and the TMDB score.' },
+      { name: 'showMeta', label: 'TMDB rating', type: 'toggle', needs: 'showInfo' },
+      { name: 'ratingPos', label: 'Rating position', type: 'seg', choices: [['bottom', 'Under the title'], ['top-right', 'Top-right badge']], needs: 'showMeta' },
+      { name: 'showGenre', label: 'Genre', type: 'toggle', needs: 'showMeta', help: 'e.g. “Drama” next to the rating, under the title.' },
+      { name: 'metaChip', label: 'Dark chip behind genre + rating', type: 'toggle', needs: 'showMeta' },
+      { name: 'region', label: 'Country', type: 'select', help: 'Whose streaming services to show, and for “Now Streaming” vs “Rent or Buy”.',
+        choices: [['NZ', 'New Zealand'], ['AU', 'Australia'], ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['IE', 'Ireland'], ['IN', 'India'], ['PH', 'Philippines'], ['SG', 'Singapore'], ['MY', 'Malaysia'], ['ID', 'Indonesia'], ['ZA', 'South Africa'], ['DE', 'Germany'], ['FR', 'France'], ['ES', 'Spain'], ['IT', 'Italy'], ['NL', 'Netherlands'], ['BR', 'Brazil'], ['MX', 'Mexico'], ['JP', 'Japan'], ['KR', 'South Korea']] }
+    ],
+    'g-art': [
+      { name: 'posterStyle', label: 'Poster artwork', type: 'seg', choices: [['always', 'Clean art + logo'], ['logo', 'Only on Top 10'], ['original', 'Original posters']],
+        help: 'Clean art = TMDB poster without text, with the title logo drawn on.' },
+      { name: 'catalogArt', label: 'Top 10 rows', type: 'seg', choices: [['plain', 'Plain TMDB art'], ['poster', 'Ranked posters'], ['ranked', 'Ranked posters + landscape']],
+        help: '“Ranked” bakes the rank into the row’s own art (use Poster art → Original in Xperience). “+ landscape” also changes the hero banner.' },
+      { name: 'heroLogo', label: 'Title logo for the hero banner', type: 'toggle' }
+    ]
+  };
+
+  // ---- build the controls ----
+  function el(tag, attrs, kids) {
+    var e = document.createElement(tag);
+    for (var k in attrs || {}) { if (k === 'text') e.textContent = attrs[k]; else e.setAttribute(k, attrs[k]); }
+    (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
+    return e;
+  }
+  var fields = {};
+  Object.keys(GROUPS).forEach(function (gid) {
+    var box = document.getElementById(gid);
+    GROUPS[gid].forEach(function (f) {
+      var id = 'f-' + f.name;
+      var head = el('div', { 'class': 'field-head' }, [el('label', { 'class': 'name', 'for': id, text: f.label })]);
+      var wrap = el('div', { 'class': 'field' }, [head]);
+      if (f.type === 'toggle') {
+        var inp = el('input', { type: 'checkbox', id: id });
+        inp.checked = !!state[f.name];
+        inp.addEventListener('change', function () { set(f.name, inp.checked); });
+        head.appendChild(el('span', { 'class': 'switch' }, [inp, el('span')]));
+      } else if (f.type === 'seg') {
+        var seg = el('div', { 'class': 'seg', role: 'group', 'aria-label': f.label, id: id });
+        f.choices.forEach(function (c) {
+          var b = el('button', { type: 'button', 'data-v': c[0], 'aria-pressed': String(state[f.name] === c[0]), text: c[1] });
+          b.addEventListener('click', function () { set(f.name, c[0]); });
+          seg.appendChild(b);
+        });
+        wrap.appendChild(seg);
+      } else if (f.type === 'range') {
+        var v = el('span', { 'class': 'val', text: Number(state[f.name]).toFixed(2) });
+        head.appendChild(v);
+        var r = el('input', { type: 'range', id: id, min: f.min, max: f.max, step: f.step });
+        r.value = state[f.name];
+        r.addEventListener('input', function () { v.textContent = Number(r.value).toFixed(2); });
+        r.addEventListener('change', function () { set(f.name, Number(r.value)); });
+        wrap.appendChild(r);
+      } else if (f.type === 'select') {
+        var s = el('select', { id: id });
+        var known = f.choices.some(function (c) { return c[0] === state[f.name]; });
+        if (!known) f.choices = [[state[f.name], state[f.name]]].concat(f.choices);
+        f.choices.forEach(function (c) { var o = el('option', { value: c[0], text: c[1] + ' (' + c[0] + ')' }); if (c[0] === state[f.name]) o.selected = true; s.appendChild(o); });
+        s.addEventListener('change', function () { set(f.name, s.value); });
+        wrap.appendChild(el('div', { 'class': 'row' }, [s]));
+      }
+      if (f.help) wrap.appendChild(el('div', { 'class': 'help', text: f.help }));
+      fields[f.name] = { def: f, node: wrap };
+      box.appendChild(wrap);
+    });
+  });
+
+  function set(name, value) {
+    state[name] = value;
+    var f = fields[name];
+    if (f && f.def.type === 'seg') {
+      f.node.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-v') === value)); });
+    }
+    refresh();
+  }
+
+  // Grey out options that depend on a switched-off one.
+  function applyNeeds() {
+    Object.keys(fields).forEach(function (n) {
+      var need = fields[n].def.needs, on = true;
+      while (need) { on = on && !!state[need]; need = fields[need] && fields[need].def.needs; }
+      fields[n].node.classList.toggle('dim', !on);
+    });
+  }
+
+  // ---- settings code + links ----
+  function code() {
+    var raw = {};
+    // only what differs from the built-in defaults, to keep links short
+    Object.keys(DATA.keys).forEach(function (n) { if (state[n] !== DATA.builtIn[n]) raw[DATA.keys[n]] = state[n]; });
+    var bytes = new TextEncoder().encode(JSON.stringify(raw)), bin = '';
+    bytes.forEach(function (b) { bin += String.fromCharCode(b); });
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  var host = DATA.host.replace(/\/+$/, '');
+  function setText(id, t) { document.getElementById(id).textContent = t; }
+  function links() {
+    var c = code(), base = host + '/c/' + c;
+    var ranks = document.getElementById('o-ranks').value, v = Math.max(1, parseInt(document.getElementById('o-v').value, 10) || 1);
+    var custom = base + '/top10/{shape}/{imdb_id}.jpg?type={type}&tmdb={tmdb_id}&ranks=' + ranks + '&v=' + v;
+    setText('o-manifest', base + '/manifest.json');
+    setText('o-custom', custom);
+    setText('o-env', 'WARM_CUSTOM_URL=' + custom);
+    document.getElementById('o-install').href = base.replace(/^https?:/, 'stremio:') + '/manifest.json';
+    return '/c/' + c;
+  }
+
+  // ---- preview ----
+  var titles = [], shape = 'portrait', timer = null, seq = 0;
+  var img = document.getElementById('pv-img'), frame = document.getElementById('pv-frame'), msg = document.getElementById('pv-msg');
+  var titleSel = document.getElementById('pv-title');
+  function preview(prefix) {
+    var t = titles[titleSel.selectedIndex];
+    if (!t) return;
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      var my = ++seq;
+      frame.classList.add('loading'); msg.hidden = true;
+      var url = prefix + '/top10/' + shape + '/' + t.id + '.jpg?type=' + t.type + '&tmdb=' + t.id + '&ranks=all&debug=1&_=' + Date.now();
+      var probe = new Image();
+      probe.onload = function () { if (my !== seq) return; img.src = probe.src; frame.classList.remove('loading'); };
+      probe.onerror = function () { if (my !== seq) return; frame.classList.remove('loading'); msg.hidden = false; msg.textContent = 'Couldn’t draw this one. Try another title.'; };
+      probe.src = url;
+    }, 350);
+  }
+  document.getElementById('pv-shape').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    shape = b.getAttribute('data-v');
+    this.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+    frame.className = 'preview-frame ' + shape;
+    refresh();
+  });
+  titleSel.addEventListener('change', function () { refresh(); });
+  ['o-ranks', 'o-v'].forEach(function (id) { document.getElementById(id).addEventListener('input', links); });
+
+  function refresh() { applyNeeds(); preview(links()); }
+
+  fetch('/preview-titles').then(function (r) { return r.json(); }).then(function (list) {
+    titles = Array.isArray(list) ? list : [];
+    titleSel.innerHTML = '';
+    var count = {};
+    titles.forEach(function (t) {
+      count[t.type] = (count[t.type] || 0) + 1;
+      titleSel.appendChild(el('option', { text: (t.type === 'series' ? 'Show' : 'Movie') + ' #' + count[t.type] + ' · ' + t.name }));
+    });
+    refresh();
+  }).catch(function () { titleSel.innerHTML = '<option>Couldn’t load today’s Top 10</option>'; links(); });
+
+  // ---- copy buttons ----
+  document.querySelectorAll('[data-copy]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var text = document.getElementById(b.getAttribute('data-copy')).textContent;
+      var done = function () { var t = b.textContent; b.textContent = 'Copied'; b.classList.add('done'); setTimeout(function () { b.textContent = t; b.classList.remove('done'); }, 1400); };
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+      function fallback() {
+        var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {} document.body.removeChild(ta);
+      }
+    });
+  });
+
+  links();
+  applyNeeds();
+})();
+</script>
+</body>
+</html>

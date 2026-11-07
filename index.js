@@ -7,9 +7,13 @@ const path = require('path');
 const { tmdbGet, memo, rankLogos } = require('./tmdb');
 const { generatePoster, generateBackdrop } = require('./poster');
 const { determineTag } = require('./tags');
+const { SCHEMA, BUILT_IN, opt, prefix, configMiddleware } = require('./options');
 
 const app = express();
 app.use(cors());
+// /c/<code>/... links from the /configure page: use the options in <code> for this
+// request. Runs before the disk cache, which keys on the full original URL.
+app.use(configMiddleware);
 
 // Self-hosting (e.g. an Oracle VPS with Docker): CACHE_DIR turns on a disk cache for
 // the image routes, doing the job Vercel's CDN does on Vercel.
@@ -40,12 +44,12 @@ const USE_IMDB_IDS = true;
 //                       and the background (landscape tiles and hero banner).
 //   poster           -> ranked art only in the poster; the background stays the plain
 //                       TMDB backdrop, so the hero banner looks clean.
-const CATALOG_ART = String(process.env.CATALOG_ART || 'plain').toLowerCase();
-const RANKED_POSTER = CATALOG_ART === 'ranked' || CATALOG_ART === 'poster';
-const RANKED_BACKGROUND = CATALOG_ART === 'ranked';
+// (These and the poster options below can also be chosen per install on /configure.)
+const RANKED_POSTER = () => ['ranked', 'poster'].includes(opt('catalogArt'));
+const RANKED_BACKGROUND = () => opt('catalogArt') === 'ranked';
 
-// Set META_LOGO=off in Vercel to stop sending the "logo" field.
-const SEND_LOGO = String(process.env.META_LOGO || 'on').toLowerCase() !== 'off';
+// META_LOGO=off stops sending the "logo" field (hero banner title logo).
+const SEND_LOGO = () => opt('heroLogo');
 
 // Images are asked for separately (both requests run at the same time): TMDB keeps the
 // combined "details + images" answer cached much longer, so a poster you fix on TMDB
@@ -209,22 +213,22 @@ const loadDetails = (tmdbType, tmdbId) => getDetails(`${tmdbType}:${tmdbId}`, tm
 // ---------- Poster info stack (provider icon + genre + rating, top-left) ----------
 // POSTER_INFO=off hides it. PROVIDER_REGION picks whose streaming services to show
 // (e.g. NZ, US, AU); falls back to US, then any country TMDB has.
-const POSTER_INFO = String(process.env.POSTER_INFO || 'on').toLowerCase() !== 'off';
+const POSTER_INFO = () => opt('showInfo');
 // POSTER_META=off hides just the genre + rating line (the provider icon stays).
-const POSTER_META = String(process.env.POSTER_META || 'on').toLowerCase() !== 'off';
+const POSTER_META = () => opt('showMeta');
 // POSTER_GENRE=off hides only the genre, leaving just the TMDB rating.
-const POSTER_GENRE = String(process.env.POSTER_GENRE || 'on').toLowerCase() !== 'off';
-const PROVIDER_REGION = String(process.env.PROVIDER_REGION || 'NZ').toUpperCase();
+const POSTER_GENRE = () => opt('showGenre');
+const PROVIDER_REGION = () => opt('region');
 
 function posterInfo(details) {
-  if (!POSTER_INFO || !details) return null;
+  if (!POSTER_INFO() || !details) return null;
   const regions = details['watch/providers']?.results || {};
-  const region = regions[PROVIDER_REGION] || regions.US || Object.values(regions)[0];
+  const region = regions[PROVIDER_REGION()] || regions.US || Object.values(regions)[0];
   const provider = (region?.flatrate || [])
     .slice()
     .sort((a, b) => (a.display_priority ?? 99) - (b.display_priority ?? 99))[0];
-  const genre = POSTER_META && POSTER_GENRE ? details.genres?.[0]?.name || null : null;
-  const rating = POSTER_META && details.vote_count > 0 && details.vote_average ? details.vote_average.toFixed(1) : null;
+  const genre = POSTER_META() && POSTER_GENRE() ? details.genres?.[0]?.name || null : null;
+  const rating = POSTER_META() && details.vote_count > 0 && details.vote_average ? details.vote_average.toFixed(1) : null;
   return { providerLogoPath: provider?.logo_path || null, genre, rating };
 }
 
@@ -259,12 +263,12 @@ async function buildMeta(item, index, type, tmdbType) {
     console.error(`Details failed for ${item.id}:`, e.message);
   }
 
-  const tag = determineTag(details, tmdbType, PROVIDER_REGION);
+  const tag = determineTag(details, tmdbType, PROVIDER_REGION());
   const imdbId = details.external_ids?.imdb_id || details.imdb_id;
   const genres = (details.genres || []).map(g => g.name);
   const year = yearOf(details.release_date || details.first_air_date);
 
-  const query = `type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}${POSTER_META ? '' : 'm'}`;
+  const query = `type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}${POSTER_META() ? '' : 'm'}`;
   const meta = {
     id: USE_IMDB_IDS && imdbId ? imdbId : `tmdb:${item.id}`,
     type,
@@ -272,8 +276,8 @@ async function buildMeta(item, index, type, tmdbType) {
     imdb_id: imdbId || undefined,
     moviedb_id: item.id,
     name: item.title || item.name,
-    poster: RANKED_POSTER || !details.poster_path
-      ? `${HOST_URL}/render-poster?${query}`
+    poster: RANKED_POSTER() || !details.poster_path
+      ? `${HOST_URL}${prefix()}/render-poster?${query}`
       : `https://image.tmdb.org/t/p/w780${details.poster_path}`,
     posterShape: 'poster',
     genres,
@@ -288,17 +292,43 @@ async function buildMeta(item, index, type, tmdbType) {
   };
 
   // Plain mode: clean TMDB backdrop, so hero banners look clean and Xperience can override it.
-  if (RANKED_BACKGROUND) meta.background = `${HOST_URL}/render-backdrop?${query}`;
+  if (RANKED_BACKGROUND()) meta.background = `${HOST_URL}${prefix()}/render-backdrop?${query}`;
   else if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
   // TMDB title logo for the hero banner.
   const logo = pickLogo(details);
-  if (SEND_LOGO && logo) meta.logo = logo;
+  if (SEND_LOGO() && logo) meta.logo = logo;
   return meta;
 }
 
-// Redirect root URL to manifest.json
+// Root: the settings page (configured links keep their settings).
 app.get('/', (req, res) => {
-  res.redirect('/manifest.json');
+  res.redirect(`${prefix()}/configure`);
+});
+
+// ---------- /configure: pick the look, get your manifest + Custom URL ----------
+const CONFIGURE_HTML = fs.readFileSync(path.join(__dirname, 'configure.html'), 'utf8');
+app.get('/configure', (req, res) => {
+  // The current options (from the link, or .env) and the option list go into the page.
+  const data = {
+    host: HOST_URL,
+    options: Object.fromEntries(Object.keys(SCHEMA).map(k => [k, opt(k)])),
+    keys: Object.fromEntries(Object.entries(SCHEMA).map(([k, o]) => [k, o.key])),
+    builtIn: BUILT_IN
+  };
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(CONFIGURE_HTML.replace('/*__DATA__*/null', () => JSON.stringify(data).replace(/</g, '\\u003c')));
+});
+
+// Today's Top 10 titles, for the preview on /configure.
+app.get('/preview-titles', async (req, res) => {
+  try {
+    const [movies, shows] = await Promise.all([getDailyTop10('movie'), getDailyTop10('tv')]);
+    const pick = (items, type) => items.map(i => ({ id: i.id, type, name: i.title || i.name }));
+    res.setHeader('Cache-Control', 'public, max-age=600');
+    res.json([...pick(shows, 'series'), ...pick(movies, 'movie')]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // 1. Stremio Manifest Endpoint
@@ -310,6 +340,8 @@ app.get('/manifest.json', (req, res) => {
     description: 'Top 10 Movies & TV Shows with original TMDB posters, rank numbers and status tags',
     resources: ['catalog'],
     types: ['movie', 'series'],
+    // Shows a "Configure" button in Stremio-style apps, which opens /configure
+    behaviorHints: { configurable: true, configurationRequired: false },
     catalogs: [
       { id: 'top10_movies', type: 'movie', name: 'Top 10 Movies Today' },
       { id: 'top10_series', type: 'series', name: 'Top 10 TV Shows Today' }
@@ -411,7 +443,7 @@ app.get('/poster/:id.jpg', async (req, res) => {
     const { tmdbId, type } = resolved;
     // Full details are needed for Premiere / Finale / New Episode tags
     const details = await loadDetails(type, tmdbId);
-    const tag = determineTag(details, type, PROVIDER_REGION);
+    const tag = determineTag(details, type, PROVIDER_REGION());
     sendImage(res, await generatePoster(tmdbId, type, null, tag, { images: details.images, info: posterInfo(details) }));
   } catch (err) {
     console.error('Poster Provider Error:', err.message);
@@ -491,7 +523,7 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
 
     const { tmdbId, type } = resolved;
     const [details, top10] = await Promise.all([loadDetails(type, tmdbId), getTop10Ids(type)]);
-    const tag = determineTag(details, type, PROVIDER_REGION);
+    const tag = determineTag(details, type, PROVIDER_REGION());
 
     const landscape = String(shape).toLowerCase() === 'landscape';
     const ranks = String(req.query.ranks || 'landscape').toLowerCase();
@@ -558,7 +590,7 @@ app.get('/warm', async (req, res) => {
   const catalogId = type === 'series' ? 'top10_series' : 'top10_movies';
   const started = Date.now();
   try {
-    const { data } = await axios.get(`${HOST_URL}/catalog/${type}/${catalogId}.json`, { timeout: 30000 });
+    const { data } = await axios.get(`${HOST_URL}${prefix()}/catalog/${type}/${catalogId}.json`, { timeout: 30000 });
     const metas = data.metas || [];
 
     const urls = new Set();

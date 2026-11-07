@@ -1,6 +1,7 @@
 const { createCanvas, GlobalFonts, Path2D } = require('@napi-rs/canvas');
 const path = require('path');
 const { tmdbGet, fetchImage, byBest, sharpFirst, rankLogos } = require('./tmdb');
+const { opt } = require('./options');
 
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
 const LAYOUTS = {
@@ -18,16 +19,21 @@ const LAYOUTS = {
 const IMAGE_QUALITY = String(process.env.IMAGE_QUALITY || 'high').toLowerCase() === 'balanced' ? 'balanced' : 'high';
 LAYOUTS.backdrop.S = IMAGE_QUALITY === 'high' ? 2 : 4 / 3;
 
-// PILL_SIZE scales the status pill ("Now Streaming"): 1 = original size, 0.8 = default
-// (20% smaller so it covers less of the poster), 0.7 = smaller still.
-const PILL_SIZE = Math.min(1.5, Math.max(0.5, Number(process.env.PILL_SIZE) || 0.8));
-// PILL_STYLE: frosted (default) = blurred, tinted glass. glass = "liquid glass": clear,
-// lightly blurred glass that bends the picture at its edges, with a bright rim.
-const PILL_STYLE = String(process.env.PILL_STYLE || 'frosted').toLowerCase() === 'glass' ? 'glass' : 'frosted';
-for (const L of Object.values(LAYOUTS)) {
-  L.pillH = Math.round(L.pillH * PILL_SIZE);
-  L.pillFont = Math.round(L.pillFont * PILL_SIZE);
-  L.pillR = Math.round(L.pillR * PILL_SIZE);
+// The look options (pill style and size, rating position, ...) come from options.js:
+// .env by default, or the settings code in a /c/<code>/ link from the /configure page.
+//   pillSize  scales the status pill: 1 = original size, 0.8 = default, 0.7 = smaller.
+//   pillStyle frosted = blurred, tinted glass; glass = "liquid glass" (clear glass that
+//             bends the picture at its edges, with a bright rim).
+const PILL_SIZE = () => opt('pillSize');
+const PILL_STYLE = () => opt('pillStyle');
+// A layout with the pill scaled for the current options.
+function layoutFor(kind) {
+  const L = { ...LAYOUTS[kind] };
+  const k = PILL_SIZE();
+  L.pillH = Math.round(L.pillH * k);
+  L.pillFont = Math.round(L.pillFont * k);
+  L.pillR = Math.round(L.pillR * k);
+  return L;
 }
 
 // Inter SemiBold = pill text. Bebas Neue = rank numbers.
@@ -49,7 +55,7 @@ const getImages = (type, tmdbId) => tmdbGet(`/${type}/${tmdbId}/images`, { inclu
 // Normal poster = best English one, then one in the original language (has the title),
 // then textless, then any.
 // `images` can be passed in when we already have them (saves a TMDB call).
-const POSTER_STYLE = String(process.env.POSTER_STYLE || 'always').toLowerCase();
+const POSTER_STYLE = () => opt('posterStyle');
 
 async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const data = images || await getImages(type, tmdbId);
@@ -64,7 +70,8 @@ async function getPosterAssets(type, tmdbId, images, ranked = false) {
   const foreign = group(p => p.iso_639_1 && p.iso_639_1 !== 'en');
   const logoPaths = logoCandidates(rankLogos(data.logos));
 
-  const useTextless = POSTER_STYLE === 'always' || (POSTER_STYLE === 'logo' && ranked);
+  const style = POSTER_STYLE();
+  const useTextless = style === 'always' || (style === 'logo' && ranked);
   if (useTextless && textless[0] && logoPaths.length) {
     return { posterPath: textless[0].file_path, logoPaths };
   }
@@ -114,19 +121,17 @@ async function getBackdropAssets(type, tmdbId, images) {
 
 // PILL_POSITION=top puts the status pill (e.g. "Now Streaming") at the top of POSTERS,
 // hanging from the top edge; bottom (default) keeps it at the bottom.
-const PILL_POSITION = String(process.env.PILL_POSITION || 'bottom').toLowerCase() === 'top' ? 'top' : 'bottom';
+const PILL_POSITION = () => opt('pillPosition');
 // LANDSCAPE_PILL_POSITION does the same for landscape art; if unset it follows PILL_POSITION.
 // RATING_POSITION=top-right moves the TMDB rating out of the line under the logo into a
 // small dark badge in the top-right corner (level with the provider icon). Note: apps
 // like Nuvio draw their "watched" tick in that corner too. Default: bottom.
-const RATING_TOP = ['top-right', 'top', 'topright'].includes(String(process.env.RATING_POSITION || 'bottom').toLowerCase());
+const RATING_TOP = () => opt('ratingPos') === 'top-right';
 
 // META_CHIP=on puts the genre + rating line on a dark rounded background.
 // Default (off) draws just the text with a soft shadow so it stays readable.
-const META_CHIP = String(process.env.META_CHIP || 'off').toLowerCase() === 'on';
-const LANDSCAPE_PILL_POSITION = process.env.LANDSCAPE_PILL_POSITION
-  ? (String(process.env.LANDSCAPE_PILL_POSITION).toLowerCase() === 'top' ? 'top' : 'bottom')
-  : PILL_POSITION;
+const META_CHIP = () => opt('metaChip');
+const LANDSCAPE_PILL_POSITION = () => (opt('landscapePill') === 'same' ? PILL_POSITION() : opt('landscapePill'));
 
 function roundedBottomRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -291,7 +296,7 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   ctx.font = `600 ${L.pillFont}px "Inter"`;
   const textW = ctx.measureText(label).width;
 
-  const pillW = Math.min(L.W - 60, Math.max(textW + 72 * PILL_SIZE, 230 * PILL_SIZE));
+  const pillW = Math.min(L.W - 60, Math.max(textW + 72 * PILL_SIZE(), 230 * PILL_SIZE()));
   const pillH = L.pillH;
   const x = Math.round((L.W - pillW) / 2);
   const atTop = position === 'top';
@@ -299,7 +304,7 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   const r = L.pillR;
   const shape = atTop ? roundedBottomRect : roundedTopRect;
 
-  if (PILL_STYLE === 'glass') {
+  if (PILL_STYLE() === 'glass') {
     const glassLight = drawLiquidGlass(ctx, L, x, y, pillW, pillH, r, atTop);
     drawGlassShine(ctx, x, y, pillW, pillH, r, atTop, shape, glassLight);
   } else {
@@ -333,8 +338,8 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   // clear glass shows more of the picture, so the text gets a stronger shadow there
-  ctx.shadowColor = PILL_STYLE === 'glass' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.45)';
-  ctx.shadowBlur = PILL_STYLE === 'glass' ? 8 : 4;
+  ctx.shadowColor = PILL_STYLE() === 'glass' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.45)';
+  ctx.shadowBlur = PILL_STYLE() === 'glass' ? 8 : 4;
   ctx.shadowOffsetY = 1;
   ctx.fillText(label, L.W / 2, y + pillH / 2 + 1);
   ctx.restore();
@@ -410,7 +415,7 @@ function drawMetaChip(ctx, L, info, bottomY) {
   const x0 = (L.W - w) / 2;
   const top = bottomY - h;
 
-  if (META_CHIP) {
+  if (META_CHIP()) {
     ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
     ctx.shadowBlur = 10;
     ctx.fillStyle = 'rgba(12, 12, 16, 0.62)';
@@ -555,16 +560,16 @@ function drawRatingBadge(ctx, L, rating, offsetY = 0) {
 // RANK_STYLE: pill (default) -> the rank goes in the status pill as "Top 1 Today"
 //                                (replacing the status text) and no big number is drawn.
 //             number         -> big rank number on the side + the normal status pill.
-const RANK_STYLE = String(process.env.RANK_STYLE || 'pill').toLowerCase() === 'number' ? 'number' : 'pill';
+const RANK_STYLE = () => opt('rankStyle');
 
 function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
-  if (rank && RANK_STYLE === 'pill') {
+  if (rank && RANK_STYLE() === 'pill') {
     tag = `Top ${rank} Today`;
     rank = null; // no side number; the provider icon moves up into the corner
   }
   const pillTop = pillPosition === 'top' && !!tag;
   const pillBottom = !!tag && !pillTop;
-  const topRating = RATING_TOP && info?.rating ? info.rating : null;
+  const topRating = RATING_TOP() && info?.rating ? info.rating : null;
   if (topRating) info = { ...info, rating: null }; // drawn in the corner instead
   const hasMeta = !!(info && (info.genre || info.rating));
   const chipBottom = (pillBottom ? L.H - L.pillH : L.H) - L.metaGap;
@@ -582,24 +587,24 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
 }
 
 function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
-  const L = LAYOUTS.poster;
+  const L = layoutFor('poster');
   const canvas = createCanvas(Math.round(L.W * L.S), Math.round(L.H * L.S));
   const ctx = canvas.getContext('2d');
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(posterImg, 0, 0, L.W, L.H);
-  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition: PILL_POSITION });
+  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition: PILL_POSITION() });
   return canvas;
 }
 
 function composeBackdrop(backdropImg, logoImg, rank, tag, info = null) {
-  const L = LAYOUTS.backdrop;
+  const L = layoutFor('backdrop');
   const canvas = createCanvas(Math.round(L.W * L.S), Math.round(L.H * L.S));
   const ctx = canvas.getContext('2d');
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   drawCover(ctx, backdropImg, L);
-  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition: LANDSCAPE_PILL_POSITION });
+  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition: LANDSCAPE_PILL_POSITION() });
   return canvas;
 }
 

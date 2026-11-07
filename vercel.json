@@ -5,7 +5,7 @@
     {
       "src": "index.js",
       "use": "@vercel/node",
-      "config": { "includeFiles": ["*.ttf"], "maxDuration": 60 }
+      "config": { "includeFiles": ["*.ttf", "configure.html"], "maxDuration": 60 }
     }
   ],
   "routes": [

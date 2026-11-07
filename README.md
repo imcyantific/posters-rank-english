@@ -49,6 +49,21 @@ You do **not** need `PORT`. That's only for running locally.
 
 ## 2. Use it in Xperience + Nuvio
 
+### Easiest: the configure page
+Open **`https://YOUR-APP/configure`** (the root URL goes there too). Pick the look (pill
+style and size, rating position, genre, country, catalog art, …) with a live preview of
+today's Top 10, then copy:
+
+- your **manifest** link → add it in Xperience (or tap *Install in Stremio / Nuvio*),
+- your **Custom URL** → Xperience → poster settings → Custom URL,
+- the **`WARM_CUSTOM_URL=` line** → your server's `.env` (self-host), so the daily warm-up
+  draws the same images.
+
+Your choices are stored in the links themselves (`/c/<code>/…`), so there's nothing to
+change on the server. To change the look later, open the configure page again (or the
+*Configure* button in Stremio-style apps), copy the new links, and replace the old ones.
+Plain links without `/c/…` keep using the `.env` settings below.
+
 ### Add the catalogs
 In Xperience, add the addon with your manifest URL:
 ```
@@ -97,7 +112,9 @@ Apps remember images by their URL, so after a design or settings change:
 
 ## 3. All settings
 
-All optional. Leave a variable out to get the default.
+All optional. Leave a variable out to get the default. The look settings (catalog art,
+poster look, `PROVIDER_REGION`) can also be chosen per link on `/configure`; links made
+there ignore the `.env` values for those.
 
 ### Catalog
 | Variable | Default | Options |
@@ -186,6 +203,8 @@ images served from Vercel's cache don't. To stay under it:
 
 | URL | What it is |
 |---|---|
+| `/configure` | Settings page: pick the look, get your manifest + Custom URL |
+| `/c/<code>/…` | Any URL below with the settings from `/configure` |
 | `/manifest.json` | Addon manifest |
 | `/catalog/movie/top10_movies.json` · `/catalog/series/top10_series.json` | The Top 10 catalogs |
 | `/top10/{portrait\|landscape}/{imdb or tmdb id}.jpg?type=…&tmdb=…&ranks=…&v=…` | Custom URL poster provider |
@@ -194,6 +213,7 @@ images served from Vercel's cache don't. To stay under it:
 | `/poster/{id}.jpg` | Older poster endpoint (pill only, no rank) |
 | `/top10-list/{movie\|tv}/{YYYY-MM-DD}.json` | Today's frozen Top 10 list |
 | `/warm?type=movie\|series` | Daily warm-up (run by Vercel Cron) |
+| `/preview-titles` | Today's Top 10 names, for the configure page preview |
 
 ---
 
