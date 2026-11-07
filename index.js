@@ -259,7 +259,7 @@ async function buildMeta(item, index, type, tmdbType) {
     console.error(`Details failed for ${item.id}:`, e.message);
   }
 
-  const tag = determineTag(details, tmdbType);
+  const tag = determineTag(details, tmdbType, PROVIDER_REGION);
   const imdbId = details.external_ids?.imdb_id || details.imdb_id;
   const genres = (details.genres || []).map(g => g.name);
   const year = yearOf(details.release_date || details.first_air_date);
@@ -411,7 +411,7 @@ app.get('/poster/:id.jpg', async (req, res) => {
     const { tmdbId, type } = resolved;
     // Full details are needed for Premiere / Finale / New Episode tags
     const details = await loadDetails(type, tmdbId);
-    const tag = determineTag(details, type);
+    const tag = determineTag(details, type, PROVIDER_REGION);
     sendImage(res, await generatePoster(tmdbId, type, null, tag, { images: details.images, info: posterInfo(details) }));
   } catch (err) {
     console.error('Poster Provider Error:', err.message);
@@ -491,7 +491,7 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
 
     const { tmdbId, type } = resolved;
     const [details, top10] = await Promise.all([loadDetails(type, tmdbId), getTop10Ids(type)]);
-    const tag = determineTag(details, type);
+    const tag = determineTag(details, type, PROVIDER_REGION);
 
     const landscape = String(shape).toLowerCase() === 'landscape';
     const ranks = String(req.query.ranks || 'landscape').toLowerCase();

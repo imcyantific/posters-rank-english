@@ -4,10 +4,12 @@ A Stremio-style addon that gives you **Top 10 Movies Today** and **Top 10 TV Sho
 catalogs (from TMDB's daily trending list), plus a **poster image service** that draws:
 
 - the **rank number** (1–10)
-- a frosted **status pill**: *Now Streaming*, *Just Added*, *In Theaters*, *New Episode*,
-  *New Season*, *Premiere*, *Finale*, *Coming Oct 24* …
+- a frosted (or liquid glass) **status pill**: *Just Added*, *In Theaters*, *Now Streaming*,
+  *Rent or Buy*, *New Episode*, *New Ep Nov 12*, *New Season*, *Premiere*, *Finale*,
+  *Coming Oct 24*, *Limited Series*, *6 Seasons*, or for older films the year and running
+  time (*1999 · 2h 16m*) …
 - the **streaming provider icon** (Netflix, Disney+, Prime Video …)
-- **genre + rating** (e.g. `Animation • ★ 8.2`)
+- **genre + rating** (e.g. `Animation • [TMDB logo] 8.2`)
 - the **title logo** on a textless poster, for a clean look
 
 It runs on **Vercel** and is made to be used with **Xperience** (which hosts the

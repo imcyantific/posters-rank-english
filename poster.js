@@ -198,6 +198,7 @@ function drawLiquidGlass(ctx, L, x, y, w, h, r, atTop) {
   fctx.drawImage(small, 0, 0, RW, RH);
   const src = fctx.getImageData(0, 0, RW, RH).data;
   const out = ctx.getImageData(X0, Y0, RW, RH);
+  let lumSum = 0, lumN = 0;
   const dst = out.data;
 
   // Pill shape as a rounded rectangle. The edge that touches the picture's border is
@@ -232,6 +233,7 @@ function drawLiquidGlass(ctx, L, x, y, w, h, r, atTop) {
       // a touch brighter and more colourful, like real glass catching light
       const rr = src[si], gg = src[si + 1], bb = src[si + 2];
       const lum = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
+      lumSum += lum; lumN++;
       dst[di] = Math.min(255, (lum + (rr - lum) * 1.25) * 1.06 + 6);
       dst[di + 1] = Math.min(255, (lum + (gg - lum) * 1.25) * 1.06 + 6);
       dst[di + 2] = Math.min(255, (lum + (bb - lum) * 1.25) * 1.06 + 6);
@@ -241,15 +243,18 @@ function drawLiquidGlass(ctx, L, x, y, w, h, r, atTop) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.putImageData(out, X0, Y0);
   ctx.restore();
+  return lumN ? lumSum / lumN / 255 : 0; // how bright the glass is (0-1)
 }
 
-// Shine and rim on top of the liquid glass: a gentle dark wash (keeps the text readable),
-// a bright inner highlight along the top edge, and a light rim that fades at the sides.
-function drawGlassShine(ctx, x, y, w, h, r, atTop, shape) {
+// Shine and rim on top of the liquid glass: a dark wash that gets stronger over bright
+// pictures (keeps the white text readable), a bright inner highlight along the top edge,
+// and a light rim that fades at the sides.
+function drawGlassShine(ctx, x, y, w, h, r, atTop, shape, brightness = 0) {
   ctx.save();
   shape(ctx, x, y, w, h, r);
   ctx.clip();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+  const wash = 0.12 + 0.5 * Math.min(1, Math.max(0, (brightness - 0.2) / 0.4));
+  ctx.fillStyle = `rgba(0, 0, 0, ${wash.toFixed(3)})`;
   ctx.fillRect(x, y, w, h);
   // inner highlight: light hits the edge away from the picture border
   const edgeY = atTop ? y + h : y;
@@ -295,8 +300,8 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   const shape = atTop ? roundedBottomRect : roundedTopRect;
 
   if (PILL_STYLE === 'glass') {
-    drawLiquidGlass(ctx, L, x, y, pillW, pillH, r, atTop);
-    drawGlassShine(ctx, x, y, pillW, pillH, r, atTop, shape);
+    const glassLight = drawLiquidGlass(ctx, L, x, y, pillW, pillH, r, atTop);
+    drawGlassShine(ctx, x, y, pillW, pillH, r, atTop, shape, glassLight);
   } else {
   // 1. Real blur of the image behind the pill
   const { canvas: blurred, sx, sy, sw, sh } = blurRegion(ctx.canvas, L, x, y, pillW, pillH);
@@ -327,8 +332,9 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-  ctx.shadowBlur = 4;
+  // clear glass shows more of the picture, so the text gets a stronger shadow there
+  ctx.shadowColor = PILL_STYLE === 'glass' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.45)';
+  ctx.shadowBlur = PILL_STYLE === 'glass' ? 8 : 4;
   ctx.shadowOffsetY = 1;
   ctx.fillText(label, L.W / 2, y + pillH / 2 + 1);
   ctx.restore();
