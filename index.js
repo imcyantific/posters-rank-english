@@ -294,9 +294,11 @@ async function buildMeta(item, index, type, tmdbType) {
   // Plain mode: clean TMDB backdrop, so hero banners look clean and Xperience can override it.
   if (RANKED_BACKGROUND()) meta.background = `${HOST_URL}${prefix()}/render-backdrop?${query}`;
   else if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
-  // TMDB title logo for the hero banner.
+  // TMDB title logo for the hero banner. Not sent when the background is our ranked art:
+  // that already has the logo drawn in, and apps like Nuvio lay meta.logo on top of the
+  // background in landscape rows, so the title would show twice.
   const logo = pickLogo(details);
-  if (SEND_LOGO() && logo) meta.logo = logo;
+  if (SEND_LOGO() && logo && !RANKED_BACKGROUND()) meta.logo = logo;
   return meta;
 }
 

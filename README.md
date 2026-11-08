@@ -120,7 +120,7 @@ there ignore the `.env` values for those.
 | Variable | Default | Options |
 |---|---|---|
 | `CATALOG_ART` | `plain` | `plain`: normal TMDB poster + backdrop · `poster`: rank baked into the poster, backdrop stays clean for the hero banner · `ranked`: rank baked into both poster and backdrop |
-| `META_LOGO` | `on` | `off` stops sending the title logo for the hero banner |
+| `META_LOGO` | `on` | `off` stops sending the title logo for the hero banner (never sent with `CATALOG_ART=ranked`, whose landscape art already has the logo) |
 | `RANK_TZ` | `Pacific/Auckland` | Time zone whose midnight starts a new Top 10 day |
 | `DIGITAL_ONLY` | `off` | `on` = movie Top 10 skips titles that are only in cinemas (no digital release yet) |
 | `DIGITAL_REGION` | *(any country)* | e.g. `NZ` or `US`: country used for the digital-release check |
