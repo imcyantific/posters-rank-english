@@ -23,7 +23,8 @@ LAYOUTS.backdrop.S = IMAGE_QUALITY === 'high' ? 2 : 4 / 3;
 // .env by default, or the settings code in a /c/<code>/ link from the /configure page.
 //   pillSize  scales the status pill: 1 = original size, 0.8 = default, 0.7 = smaller.
 //   pillStyle frosted = blurred, tinted glass; glass = "liquid glass" (clear glass that
-//             bends the picture at its edges, with a bright rim).
+//             bends the picture at its edges, with a bright rim); color = a solid tab in
+//             a colour taken from the artwork.
 const PILL_SIZE = () => opt('pillSize');
 const PILL_STYLE = () => opt('pillStyle');
 // A layout with the pill scaled for the current options.
@@ -123,7 +124,7 @@ async function getBackdropAssets(type, tmdbId, images) {
 // hanging from the top edge; bottom (default) keeps it at the bottom.
 const PILL_POSITION = () => opt('pillPosition');
 // LANDSCAPE_PILL_POSITION does the same for landscape art; if unset it follows PILL_POSITION.
-// RATING_POSITION=top-right moves the TMDB rating out of the line under the logo into a
+// RATING_POSITION=top-right moves the scores (IMDb / TMDB / RT) out of the line under the logo into a
 // small dark badge in the top-right corner (level with the provider icon). Note: apps
 // like Nuvio draw their "watched" tick in that corner too. Default: bottom.
 const RATING_TOP = () => opt('ratingPos') === 'top-right';
@@ -287,8 +288,65 @@ function drawGlassShine(ctx, x, y, w, h, r, atTop, shape, brightness = 0) {
   ctx.restore();
 }
 
-// Frosted-glass tab at the bottom centre.
-function drawTagPill(ctx, text, L, position = 'bottom') {
+// PILL_STYLE=color: a solid tab in a colour taken from the artwork around it (e.g. gold
+// on a gold poster, light grey on a pale one, near-black on a dark one), with dark or
+// white text, whichever reads better. Measured on the bare artwork, before the dark fade
+// and logo are drawn. Returns { fill, text }, or null for the other styles.
+function pillColorFor(ctx, L, position) {
+  if (PILL_STYLE() !== 'color') return null;
+  const S = L.S || 1;
+  const w = Math.round(L.W * 0.6 * S);
+  const h = Math.round(L.H * 0.18 * S);
+  const x = Math.round(L.W * 0.2 * S);
+  const y = position === 'top' ? 0 : Math.round(L.H * S) - h;
+  const px = ctx.getImageData(x, y, w, h).data;
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < px.length; i += 4 * 7) { r += px[i]; g += px[i + 1]; b += px[i + 2]; n++; }
+  if (!n) return null;
+  // average colour -> HSL, a little more colourful and lifted off the background
+  let [hue, sat, lig] = rgbToHsl(r / n / 255, g / n / 255, b / n / 255);
+  sat = Math.min(1, sat * 1.25);
+  lig = lig < 0.5 ? Math.max(0.1, Math.min(0.45, lig + 0.07)) : Math.min(0.86, lig + 0.04);
+  const [R, G, B] = hslToRgb(hue, sat, lig);
+  // Dark text from mid-tones up (gold, light grey ...): it has more contrast there than
+  // white does. Brightness here is as the eye sees it (linear light).
+  const lin = c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = 0.2126 * lin(R) + 0.7152 * lin(G) + 0.0722 * lin(B);
+  const dark = lum < 0.22;
+  return {
+    fill: `rgb(${Math.round(R * 255)}, ${Math.round(G * 255)}, ${Math.round(B * 255)})`,
+    text: dark ? 'rgba(255, 255, 255, 0.95)' : 'rgba(16, 16, 18, 0.88)',
+    dark
+  };
+}
+
+function rgbToHsl(r, g, b) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h / 6, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  if (!s) return [l, l, l];
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const f = t => {
+    t = (t + 1) % 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return [f(h + 1 / 3), f(h), f(h - 1 / 3)];
+}
+
+// The status tab at the bottom (or top) centre: frosted glass, liquid glass or a solid
+// colour (pillColor, see pillColorFor).
+function drawTagPill(ctx, text, L, position = 'bottom', pillColor = null) {
   if (!text) return;
   const label = String(text);
 
@@ -304,7 +362,16 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   const r = L.pillR;
   const shape = atTop ? roundedBottomRect : roundedTopRect;
 
-  if (PILL_STYLE() === 'glass') {
+  if (pillColor) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = atTop ? 3 : -3;
+    ctx.fillStyle = pillColor.fill;
+    shape(ctx, x, y, pillW, pillH, r * 0.7);
+    ctx.fill();
+    ctx.restore();
+  } else if (PILL_STYLE() === 'glass') {
     const glassLight = drawLiquidGlass(ctx, L, x, y, pillW, pillH, r, atTop);
     drawGlassShine(ctx, x, y, pillW, pillH, r, atTop, shape, glassLight);
   } else {
@@ -334,14 +401,23 @@ function drawTagPill(ctx, text, L, position = 'bottom') {
   }
 
   // 4. Text
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = pillColor ? pillColor.text : '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // clear glass shows more of the picture, so the text gets a stronger shadow there
-  ctx.shadowColor = PILL_STYLE() === 'glass' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.45)';
+  // clear glass shows more of the picture, so the text gets a stronger shadow there;
+  // on a solid colour only white text gets a faint one
+  ctx.shadowColor = pillColor ? (pillColor.dark ? 'rgba(0, 0, 0, 0.3)' : 'transparent')
+    : PILL_STYLE() === 'glass' ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.45)';
   ctx.shadowBlur = PILL_STYLE() === 'glass' ? 8 : 4;
   ctx.shadowOffsetY = 1;
   ctx.fillText(label, L.W / 2, y + pillH / 2 + 1);
+  if (pillColor) {
+    // a touch bolder, like the rest of the solid tab
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.lineWidth = 0.7;
+    ctx.strokeText(label, L.W / 2, y + pillH / 2 + 1);
+  }
   ctx.restore();
 }
 
@@ -360,6 +436,65 @@ function drawTmdbMark(ctx, x, cy, size) {
   ctx.fillStyle = grad;
   ctx.fill(TMDB_MARK);
   ctx.restore();
+}
+
+// IMDb and Rotten Tomatoes marks, also from simple-icons (CC0), 24 x 24 grid.
+const IMDB_MARK = new Path2D('M22.3781 0H1.6218C.7411.0583.0587.7437.0018 1.5953l-.001 20.783c.0585.8761.7125 1.543 1.5559 1.6191A.337.337 0 0 0 1.6016 24h20.7971a.4579.4579 0 0 0 .0437-.002c.8727-.0768 1.5568-.8271 1.5568-1.7085V1.7098c0-.8914-.696-1.6416-1.584-1.7078A.3294.3294 0 0 0 22.3781 0zm0 .496a1.2144 1.2144 0 0 1 1.1252 1.2139v20.5797c0 .6377-.4875 1.1602-1.1045 1.2145H1.6016c-.5967-.0543-1.0645-.5297-1.1053-1.1258V1.6284C.5371 1.0185 1.0184.5364 1.6217.496h20.7564zM4.7954 8.2603v7.3636H2.8899V8.2603h1.9055zm6.5367 0v7.3636H9.6707v-4.9704l-.6711 4.9704H7.813l-.6986-4.8618-.0066 4.8618h-1.668V8.2603h2.468c.0748.4476.1492.9694.2307 1.5734l.2712 1.8713.4407-3.4447h2.4817zm2.9772 1.3289c.0742.0404.122.108.1417.2034.0279.0953.0345.3118.0345.6442v2.8548c0 .4881-.0345.7867-.0955.8954-.0609.1152-.2304.1695-.5018.1695V9.5211c.204 0 .3457.0205.4211.0681zm-.0211 6.0347c.4543 0 .8006-.0265 1.0245-.0742.2304-.0477.4204-.1357.5694-.2648.1556-.1218.2642-.298.3251-.5219.0611-.2238.1021-.6648.1021-1.3224v-2.5832c0-.6986-.0271-1.1668-.0742-1.4039-.041-.237-.1431-.4543-.3126-.6437-.1695-.1973-.4198-.3324-.7456-.421-.3191-.0808-.8542-.1285-1.7694-.1285h-1.4244v7.3636h2.3051zm5.14-1.7827c0 .3523-.0199.5762-.0544.6708-.033.0947-.1894.1424-.3046.1424-.1086 0-.19-.0477-.2238-.1351-.041-.0887-.0609-.2986-.0609-.6238v-1.9469c0-.3324.0199-.5423.0543-.6237.0338-.0808.1086-.122.2171-.122.1153 0 .2709.0412.3114.1425.041.0947.0609.2986.0609.6032v1.8926zm-2.4747-5.5809v7.3636h1.7157l.1152-.4675c.1556.1894.3251.3324.5152.4271.1828.0881.4608.1357.678.1357.3047 0 .5629-.0748.7802-.237.2165-.1562.3589-.3462.4198-.5628.0543-.2173.0887-.543.0887-.9841v-2.0675c0-.4409-.0139-.7324-.0344-.8681-.0199-.1357-.0742-.2781-.1695-.4204-.1021-.1425-.2437-.251-.4272-.3325-.1834-.0742-.3999-.1152-.6576-.1152-.2172 0-.4952.0477-.6846.1285-.1835.0887-.353.2238-.5086.4007V8.2603h-1.8309z');
+const RT_MARK = new Path2D('M5.866 0L4.335 1.262l2.082 1.8c-2.629-.989-4.842 1.4-5.012 2.338 1.384-.323 2.24-.422 3.344-.335-7.042 4.634-4.978 13.148-1.434 16.094 5.784 4.612 13.77 3.202 17.91-1.316C27.26 13.363 22.993.65 10.86 2.766c.107-1.17.633-1.503 1.243-1.602-.89-1.493-3.67-.734-4.556 1.374C7.52 2.602 5.866 0 5.866 0zM4.422 7.217H6.9c2.673 0 2.898.012 3.55.202 1.06.307 1.868.973 2.313 1.904.05.106.092.206.13.305l7.623.008.027 2.912-2.745-.024v7.549l-2.982-.016v-7.522l-2.127.016a2.92 2.92 0 0 1-1.056 1.134c-.287.176-.3.19-.254.264.127.2 2.125 3.642 2.125 3.659l-3.39.019-2.013-3.376c-.034-.047-.122-.068-.344-.084l-.297-.02.037 3.48-3.075-.038zm3.016 2.288l.024.338c.014.186.024.729.024 1.206v.867l.582-.025c.32-.013.695-.049.833-.078.694-.146 1.048-.478 1.087-1.018.027-.378-.063-.636-.303-.87-.318-.309-.761-.416-1.733-.418Z');
+
+// IMDb: yellow badge with the black "IMDb" letters (the letters part of the icon only).
+function drawImdbMark(ctx, x, cy, size) {
+  const h = size * 0.6, w = size * 1.25;
+  const y = cy - h / 2;
+  ctx.save();
+  ctx.fillStyle = '#f5c518';
+  roundedRectPath(ctx, x, y, w, h, h * 0.18);
+  ctx.fill();
+  ctx.clip();
+  ctx.shadowColor = 'transparent'; // a shadow from the letters would darken the badge
+  // the letters span x 2.4-21.6, y 8.3-15.6 on the icon's grid
+  const k = (w * 0.84) / 19.2;
+  ctx.translate(x + w / 2 - 12 * k, cy - 11.94 * k);
+  ctx.scale(k, k);
+  ctx.fillStyle = '#000000';
+  ctx.fill(IMDB_MARK);
+  ctx.restore();
+}
+
+// Rotten Tomatoes: red tomato when "fresh" (60% or more), green when "rotten".
+function drawRtMark(ctx, x, cy, size, fresh) {
+  const s = (size * 0.78) / 24;
+  ctx.save();
+  ctx.translate(x, cy - (size * 0.78) / 2);
+  ctx.scale(s, s);
+  ctx.fillStyle = fresh ? '#fa320a' : '#0ac855';
+  ctx.fill(RT_MARK);
+  ctx.restore();
+}
+
+const MARK_W = { imdb: 1.25, tmdb: 1, rt: 0.8 };   // mark width, in mark sizes
+function drawScoreMark(ctx, r, x, cy, size) {
+  if (r.src === 'imdb') drawImdbMark(ctx, x, cy, size);
+  else if (r.src === 'rt') drawRtMark(ctx, x, cy, size, r.fresh);
+  else drawTmdbMark(ctx, x, cy, size);
+}
+
+// A row of scores, "[IMDb] 7.5   [TMDB] 7.4   [RT] 85%". With draw = null it only
+// measures. Returns the width.
+function scoresRow(ctx, ratings, f, x, cy, drawText) {
+  const size = f * 1.5;
+  const markGap = f * 0.3;
+  const between = f * 0.8;
+  let w = 0;
+  ratings.forEach((r, i) => {
+    if (i) w += between;
+    const mw = size * (MARK_W[r.src] || 1);
+    if (drawText) drawScoreMark(ctx, r, x + w, cy - 1, size);
+    w += mw + markGap;
+    if (drawText) drawText(r.text, x + w, cy);
+    w += ctx.measureText(r.text).width;
+  });
+  return w;
 }
 
 function roundedRectPath(ctx, x, y, w, h, r) {
@@ -391,27 +526,31 @@ function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0) {
   ctx.restore();
 }
 
-// Genre + rating ("Science Fiction  •  [TMDB logo] 8.4"), centred, optionally on a chip.
-// bottomY = where the chip's bottom edge goes. Text is drawn slightly bold so it reads
-// well on any artwork.
+// Genre + scores ("Science Fiction  •  [IMDb] 7.5  [TMDB] 7.4  [RT] 85%"), centred,
+// optionally on a chip. bottomY = where the chip's bottom edge goes. Text is drawn
+// slightly bold so it reads well on any artwork. Shrinks to fit when it's too wide.
 function drawMetaChip(ctx, L, info, bottomY) {
-  if (!info || (!info.genre && !info.rating)) return;
-  const f = L.metaFont;
-  const h = L.metaChipH;
+  const ratings = info?.ratings || [];
+  if (!info || (!info.genre && !ratings.length)) return;
   const genre = info.genre ? String(info.genre) : '';
-  const dot = genre && info.rating ? '  \u2022  ' : '';
-  const rating = info.rating ? String(info.rating) : '';
+  const dot = genre && ratings.length ? '  \u2022  ' : '';
+  const padX = 20;
 
   ctx.save();
-  ctx.font = `600 ${f}px "Inter"`;
-  const markSize = f * 1.5;                // TMDB logo, a bit taller than the text
-  const markW = rating ? markSize + f * 0.3 : 0;
-  const genreW = ctx.measureText(genre).width;
-  const dotW = ctx.measureText(dot).width;
-  const ratingW = ctx.measureText(rating).width;
-  const contentW = genreW + dotW + markW + ratingW;
-  const padX = 20;
-  const w = Math.min(L.W - 40, contentW + padX * 2);
+  let f = L.metaFont;
+  let genreW, dotW, scoresW, contentW;
+  const measure = () => {
+    ctx.font = `600 ${f}px "Inter"`;
+    genreW = ctx.measureText(genre).width;
+    dotW = ctx.measureText(dot).width;
+    scoresW = scoresRow(ctx, ratings, f, 0, 0, null);
+    contentW = genreW + dotW + scoresW;
+  };
+  measure();
+  const room = L.W - 40 - padX * 2;
+  if (contentW > room) { f = Math.floor(f * room / contentW); measure(); }
+  const h = Math.round(L.metaChipH * f / L.metaFont);
+  const w = contentW + padX * 2;
   const x0 = (L.W - w) / 2;
   const top = bottomY - h;
 
@@ -438,22 +577,18 @@ function drawMetaChip(ctx, L, info, bottomY) {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 0.9;
-  const boldText = (t, color) => {
+  const boldText = (t, tx, color = '#ffffff') => {
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
-    ctx.fillText(t, x, cy, L.W - 80);
+    ctx.fillText(t, tx, cy);
     const shadow = ctx.shadowColor;
     ctx.shadowColor = 'transparent'; // shadow only once, from the fill
-    ctx.strokeText(t, x, cy, L.W - 80);
+    ctx.strokeText(t, tx, cy);
     ctx.shadowColor = shadow;
   };
-  if (genre) { boldText(genre, '#ffffff'); x += genreW; }
-  if (dot) { boldText(dot, 'rgba(255, 255, 255, 0.7)'); x += dotW; }
-  if (rating) {
-    drawTmdbMark(ctx, x, cy - 1, markSize);
-    x += markW;
-    boldText(rating, '#ffffff');
-  }
+  if (genre) { boldText(genre, x); x += genreW; }
+  if (dot) { boldText(dot, x, 'rgba(255, 255, 255, 0.7)'); x += dotW; }
+  if (ratings.length) scoresRow(ctx, ratings, f, x, cy, (t, tx) => boldText(t, tx));
   ctx.restore();
 }
 
@@ -516,19 +651,16 @@ function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
   ctx.drawImage(logoImg, (L.W - w) / 2, bottom - h, w, h);
 }
 
-// TMDB rating badge in the top-right corner: [TMDB logo] 7.5 on a dark rounded badge,
-// level with the provider icon in the top-left. The badge keeps it readable on bright
-// artwork (there's no dark fade at the top).
-function drawRatingBadge(ctx, L, rating, offsetY = 0) {
+// Scores badge in the top-right corner: [IMDb] 7.5  [TMDB] 7.4 ... on a dark rounded
+// badge, level with the provider icon in the top-left. The badge keeps it readable on
+// bright artwork (there's no dark fade at the top).
+function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
   const h = Math.round(L.providerSize * 0.8);
   const f = Math.round(h * 0.5);
-  const mark = h * 0.62;
   const padX = h * 0.28;
-  const gap = f * 0.3;
   ctx.save();
   ctx.font = `600 ${f}px "Inter"`;
-  const textW = ctx.measureText(rating).width;
-  const w = padX + mark + gap + textW + padX;
+  const w = padX + scoresRow(ctx, ratings, f, 0, 0, null) + padX;
   const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
   const y = L.providerTop + (L.providerSize - h) / 2 + offsetY;
   ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
@@ -541,15 +673,15 @@ function drawRatingBadge(ctx, L, rating, offsetY = 0) {
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
   ctx.lineWidth = 1;
   ctx.stroke();
-  const cy = y + h / 2;
-  drawTmdbMark(ctx, x + padX, cy, mark);
   ctx.fillStyle = '#ffffff';
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 0.8;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(rating, x + padX + mark + gap, cy + 1);
-  ctx.strokeText(rating, x + padX + mark + gap, cy + 1);
+  scoresRow(ctx, ratings, f, x + padX, y + h / 2 + 1, (t, tx) => {
+    ctx.fillText(t, tx, y + h / 2 + 1);
+    ctx.strokeText(t, tx, y + h / 2 + 1);
+  });
   ctx.restore();
 }
 
@@ -558,20 +690,21 @@ function drawRatingBadge(ctx, L, rating, offsetY = 0) {
 // [pill] -> [genre/rating chip] -> [title logo]. With the pill on top, the rank number and
 // provider icon move down to clear it.
 // RANK_STYLE: pill (default) -> the rank goes in the status pill as "Top 1 Today"
+//             hash           -> the same, written "#1 Today"
 //                                (replacing the status text) and no big number is drawn.
 //             number         -> big rank number on the side + the normal status pill.
 const RANK_STYLE = () => opt('rankStyle');
 
-function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
-  if (rank && RANK_STYLE() === 'pill') {
-    tag = `Top ${rank} Today`;
+function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColor }) {
+  if (rank && RANK_STYLE() !== 'number') {
+    tag = RANK_STYLE() === 'hash' ? `#${rank} Today` : `Top ${rank} Today`;
     rank = null; // no side number; the provider icon moves up into the corner
   }
   const pillTop = pillPosition === 'top' && !!tag;
   const pillBottom = !!tag && !pillTop;
-  const topRating = RATING_TOP() && info?.rating ? info.rating : null;
-  if (topRating) info = { ...info, rating: null }; // drawn in the corner instead
-  const hasMeta = !!(info && (info.genre || info.rating));
+  const topRating = RATING_TOP() && info?.ratings?.length ? info.ratings : null;
+  if (topRating) info = { ...info, ratings: [] }; // drawn in the corner instead
+  const hasMeta = !!(info && (info.genre || info.ratings?.length));
   const chipBottom = (pillBottom ? L.H - L.pillH : L.H) - L.metaGap;
   const aboveChip = hasMeta ? L.metaChipH + L.metaGap : 0;
   if (logoImg) drawLogo(ctx, logoImg, L, pillBottom, aboveChip + (pillBottom ? 0 : L.metaGap));
@@ -583,7 +716,7 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition }) {
   if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset);
   if (rank) drawRank(ctx, rank, L, topOffset);
   if (topRating) drawRatingBadge(ctx, L, topRating, (pillTop && L.shiftForTopPill ? L.pillH + 4 : 0));
-  if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom');   // last, so it blurs the finished image
+  if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom', pillColor);   // last, so it blurs the finished image
 }
 
 function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
@@ -593,7 +726,8 @@ function composePoster(posterImg, rank, tag, logoImg = null, info = null) {
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(posterImg, 0, 0, L.W, L.H);
-  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition: PILL_POSITION() });
+  const pillPosition = PILL_POSITION();
+  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColor: pillColorFor(ctx, L, pillPosition) });
   return canvas;
 }
 
@@ -604,7 +738,8 @@ function composeBackdrop(backdropImg, logoImg, rank, tag, info = null) {
   ctx.scale(L.S, L.S);
   ctx.imageSmoothingQuality = 'high';
   drawCover(ctx, backdropImg, L);
-  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition: LANDSCAPE_PILL_POSITION() });
+  const pillPosition = LANDSCAPE_PILL_POSITION();
+  drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColor: pillColorFor(ctx, L, pillPosition) });
   return canvas;
 }
 
@@ -726,10 +861,10 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
       loadProviderIcon(info?.providerLogoPath)
     ]);
     // No logo of our own means the poster has its title printed in it (no textless art on
-    // TMDB); the genre/rating line would sit on top of that title, so leave it out.
+    // TMDB); the genre/scores line would sit on top of that title, so leave it out.
     const ownTitle = logoPaths.length > 0;
     const infoForDraw = info
-      ? { genre: ownTitle ? info.genre : null, rating: ownTitle ? info.rating : null, providerImg }
+      ? { genre: ownTitle ? info.genre : null, ratings: ownTitle ? info.ratings : [], providerImg }
       : null;
     return await toJpeg(composePoster(posterImg, rank, tag, logoImg, infoForDraw));
   } catch (err) {
@@ -752,7 +887,7 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
       loadLogo(logoPaths),
       loadProviderIcon(info?.providerLogoPath)
     ]);
-    const infoForDraw = info ? { genre: info.genre, rating: info.rating, providerImg } : null;
+    const infoForDraw = info ? { genre: info.genre, ratings: info.ratings || [], providerImg } : null;
     return await toJpeg(composeBackdrop(backdropImg, logoImg, rank, tag, infoForDraw));
   } catch (err) {
     console.error('Error generating backdrop:', err.message);

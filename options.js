@@ -22,17 +22,25 @@ const SCHEMA = {
   catalogArt:    { key: 'ca', env: 'CATALOG_ART', def: 'plain', parse: oneOf(['plain', 'poster', 'ranked'], 'plain') },
   heroLogo:      { key: 'hl', env: 'META_LOGO', def: true, parse: v => onOff(v, true) },
   posterStyle:   { key: 'ps', env: 'POSTER_STYLE', def: 'always', parse: oneOf(['always', 'logo', 'original'], 'always') },
-  pillStyle:     { key: 'pl', env: 'PILL_STYLE', def: 'frosted', parse: oneOf(['frosted', 'glass'], 'frosted') },
+  // color = a solid tab in a colour taken from the artwork
+  pillStyle:     { key: 'pl', env: 'PILL_STYLE', def: 'frosted', parse: oneOf(['frosted', 'glass', 'color'], 'frosted') },
   pillSize:      { key: 'pz', env: 'PILL_SIZE', def: 0.8, parse: v => Math.min(1.5, Math.max(0.5, Number(v) || 0.8)) },
   pillPosition:  { key: 'pp', env: 'PILL_POSITION', def: 'bottom', parse: oneOf(['bottom', 'top'], 'bottom') },
   // 'same' = follow pillPosition
   landscapePill: { key: 'lp', env: 'LANDSCAPE_PILL_POSITION', def: 'same', parse: oneOf(['same', 'bottom', 'top'], 'same') },
-  rankStyle:     { key: 'rs', env: 'RANK_STYLE', def: 'pill', parse: oneOf(['pill', 'number'], 'pill') },
+  // pill = "Top 1 Today" in the pill, hash = "#1 Today" in the pill, number = big number
+  rankStyle:     { key: 'rs', env: 'RANK_STYLE', def: 'pill', parse: oneOf(['pill', 'hash', 'number'], 'pill') },
   showInfo:      { key: 'in', env: 'POSTER_INFO', def: true, parse: v => onOff(v, true) },
   showMeta:      { key: 'me', env: 'POSTER_META', def: true, parse: v => onOff(v, true) },
   showGenre:     { key: 'ge', env: 'POSTER_GENRE', def: true, parse: v => onOff(v, true) },
   ratingPos:     { key: 'rp', env: 'RATING_POSITION', def: 'bottom',
                    parse: v => (['top-right', 'top', 'topright'].includes(String(v ?? '').toLowerCase()) ? 'top-right' : 'bottom') },
+  // Which scores go in the rating line, e.g. "imdb,tmdb,rt" (always drawn in that order).
+  // IMDb and Rotten Tomatoes need MDBLIST_API_KEY on the server (see ratings.js).
+  ratings:       { key: 'ra', env: 'RATINGS', def: 'imdb,tmdb,rt', parse: v => {
+                   const want = String(v ?? '').toLowerCase().split(/[\s,]+/);
+                   return ['imdb', 'tmdb', 'rt'].filter(s => want.includes(s)).join(',');
+                 } },
   metaChip:      { key: 'mc', env: 'META_CHIP', def: false, parse: v => onOff(v, false) },
   region:        { key: 're', env: 'PROVIDER_REGION', def: 'NZ',
                    parse: v => (/^[a-z]{2}$/i.test(String(v ?? '')) ? String(v).toUpperCase() : 'NZ') }

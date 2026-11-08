@@ -22,37 +22,15 @@ function fmt(dateStr) {
   return `${MONTHS[m - 1]} ${d}`;
 }
 
-// Streaming / rent / buy offers for one country (falls back to US, then any country).
-function offersFor(d, region) {
-  const regions = d['watch/providers']?.results || {};
-  const r = regions[region] || regions.US || Object.values(regions)[0] || {};
-  return { stream: (r.flatrate || []).length > 0, rentBuy: (r.rent || []).length + (r.buy || []).length > 0 };
-}
-
-// 136 -> "2h 16m", 45 -> "45m"
-function runtime(mins) {
-  if (!mins) return '';
-  const h = Math.floor(mins / 60), m = mins % 60;
-  return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
-}
-
-function movieTag(d, t, region) {
+function movieTag(d, t) {
   const rd = dayNum(d.release_date);
   if (rd === null) return 'Coming Soon';
   if (rd > t) return `Coming ${fmt(d.release_date)}`;
   const age = t - rd;
   if (age <= 30) return 'Just Added';
   if (age <= 60) return 'In Theaters';
-  // Up to ~6 months after release: say where it is now.
-  if (age <= 180) {
-    const { stream, rentBuy } = offersFor(d, region);
-    if (stream) return 'Now Streaming';
-    if (rentBuy) return 'Rent or Buy';
-  }
-  // Older films: year + running time, e.g. "1999 · 2h 16m".
-  const year = String(d.release_date).slice(0, 4);
-  const rt = runtime(d.runtime);
-  return rt ? `${year} \u00b7 ${rt}` : year;
+  // Otherwise the default: out of cinemas, so streaming / digital now.
+  return 'Now Streaming';
 }
 
 function tvTag(d, t) {
@@ -100,16 +78,14 @@ function tvTag(d, t) {
   // 9. A miniseries -> "Limited Series"
   if (d.type === 'Miniseries') return 'Limited Series';
 
-  // 10. Otherwise how many seasons it has -> "6 Seasons"
-  const n = d.number_of_seasons || (d.seasons || []).filter(s => s.season_number > 0).length;
-  if (n > 0) return n === 1 ? '1 Season' : `${n} Seasons`;
+  // Otherwise the default.
   return 'Now Streaming';
 }
 
-// region: whose streaming offers to check (e.g. NZ), for "Now Streaming" vs "Rent or Buy".
-function determineTag(details, type, region = 'US') {
+// Falls back to "Now Streaming" when there's nothing newer to say.
+function determineTag(details, type) {
   const t = todayNum();
-  return type === 'tv' ? tvTag(details || {}, t) : movieTag(details || {}, t, region);
+  return type === 'tv' ? tvTag(details || {}, t) : movieTag(details || {}, t);
 }
 
 module.exports = { determineTag, dayNum, todayNum };
