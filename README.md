@@ -4,12 +4,12 @@ A Stremio-style addon that gives you **Top 10 Movies Today** and **Top 10 TV Sho
 catalogs (from TMDB's daily trending list), plus a **poster image service** that draws:
 
 - the **rank number** (1–10)
-- a frosted (or liquid glass) **status pill**: *Just Added*, *In Theaters*, *Now Streaming*,
-  *Rent or Buy*, *New Episode*, *New Ep Nov 12*, *New Season*, *Premiere*, *Finale*,
-  *Coming Oct 24*, *Limited Series*, *6 Seasons*, or for older films the year and running
-  time (*1999 · 2h 16m*) …
+- a frosted, liquid glass or solid-colour **status pill**: *Just Added*, *In Theaters*,
+  *Now Streaming*, *New Episode*, *New Ep Nov 12*, *New Season*, *Premiere*, *Finale*,
+  *Coming Oct 24*, *Limited Series* … (no pill when there's nothing new to say)
 - the **streaming provider icon** (Netflix, Disney+, Prime Video …)
-- **genre + rating** (e.g. `Animation • [TMDB logo] 8.2`)
+- **genre + ratings** (e.g. `Animation • [IMDb] 8.0  [TMDB] 8.2  [RT] 94%`; IMDb and
+  Rotten Tomatoes need a free MDBList key)
 - the **title logo** on a textless poster, for a clean look
 
 It runs on **Vercel** and is made to be used with **Xperience** (which hosts the
@@ -128,17 +128,20 @@ there ignore the `.env` values for those.
 ### Poster look
 | Variable | Default | Options |
 |---|---|---|
-| `RANK_STYLE` | `pill` | `pill`: Top 10 rank shown in the pill as **Top 1 Today** (no side number) · `number`: big rank number on the side + normal status pill |
+| `RANK_STYLE` | `pill` | `pill`: Top 10 rank shown in the pill as **Top 1 Today** (no side number) · `hash`: the same, written **#1 Today** · `number`: big rank number on the side + normal status pill |
 | `POSTER_STYLE` | `always` | `always`: textless poster + drawn title logo on every poster (if TMDB has no textless poster, the normal one is used without the genre/rating line) · `logo`: only on ranked Top 10 posters · `original`: never, always the normal poster |
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
 | `PILL_SIZE` | `0.8` | Pill size: `1` = big (old size), `0.7` = smaller. Range 0.5–1.5 |
-| `PILL_STYLE` | `frosted` | `glass`: "liquid glass" pill, clear glass that bends the picture at its edges, with a bright rim. `frosted`: blurred, tinted glass |
+| `PILL_STYLE` | `frosted` | `glass`: "liquid glass" pill, clear glass that bends the picture at its edges, with a bright rim. `color`: a solid tab in a colour picked from the artwork, with dark or white text. `frosted`: blurred, tinted glass |
 | `POSTER_INFO` | `on` | `off` hides the provider icon **and** genre/rating |
 | `POSTER_SKIP` | *(empty)* | TMDB images to never use, comma-separated, e.g. `/b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg` (also accepts the full image link). Clear the image cache after changing it |
 | `POSTER_META` | `on` | `off` hides only the genre/rating line (provider icon stays) |
-| `POSTER_GENRE` | `on` | `off` hides the genre, so the line shows only the TMDB logo and rating |
-| `RATING_POSITION` | `bottom` | `top-right`: the TMDB rating goes in a small dark badge in the top-right corner instead of the line under the logo (note: Nuvio draws its "watched" tick in that corner) |
+| `POSTER_GENRE` | `on` | `off` hides the genre, so the line shows only the ratings |
+| `RATINGS` | `imdb,tmdb,rt` | Which scores to show, always in the order IMDb, TMDB, Rotten Tomatoes. A title without a score just leaves it out |
+| `MDBLIST_API_KEY` | *(none)* | Free key from [mdblist.com/preferences](https://mdblist.com/preferences/) (API Key). Needed for the IMDb and Rotten Tomatoes scores; without it only TMDB shows. Free plan: about 1000 lookups a day |
+| `RATINGS_CACHE_DAYS` | `3` | How long each title's IMDb/RT scores are kept before asking MDBList again (saved in `CACHE_DIR/ratings.json`) |
+| `RATING_POSITION` | `bottom` | `top-right`: the scores go in a small dark badge in the top-right corner instead of the line under the logo (note: Nuvio draws its "watched" tick in that corner) |
 | `META_CHIP` | `off` | `on` puts the genre/rating on a dark rounded background |
 | `PROVIDER_REGION` | `NZ` | Whose streaming services to show (`US`, `AU` …). Falls back to US, then any country |
 

@@ -164,19 +164,22 @@
   // ---- option list (what the page shows) ----
   var GROUPS = {
     'g-pill': [
-      { name: 'pillStyle', label: 'Style', type: 'seg', choices: [['frosted', 'Frosted'], ['glass', 'Liquid glass']] },
+      { name: 'pillStyle', label: 'Style', type: 'seg', choices: [['frosted', 'Frosted'], ['glass', 'Liquid glass'], ['color', 'Colour']],
+        help: 'Colour = a solid tab in a colour picked from the artwork.' },
       { name: 'pillSize', label: 'Size', type: 'range', min: 0.5, max: 1.5, step: 0.05 },
       { name: 'pillPosition', label: 'Position on posters', type: 'seg', choices: [['bottom', 'Bottom'], ['top', 'Top']] },
       { name: 'landscapePill', label: 'Position on landscape', type: 'seg', choices: [['same', 'Same as posters'], ['bottom', 'Bottom'], ['top', 'Top']] },
-      { name: 'rankStyle', label: 'Rank', type: 'seg', choices: [['pill', '“Top 1 Today” in the pill'], ['number', 'Big number']] }
+      { name: 'rankStyle', label: 'Rank', type: 'seg', choices: [['pill', '“Top 1 Today”'], ['hash', '“#1 Today”'], ['number', 'Big number']] }
     ],
     'g-info': [
-      { name: 'showInfo', label: 'Streaming service icon + rating', type: 'toggle', help: 'Netflix / Disney+ … icon and the TMDB score.' },
-      { name: 'showMeta', label: 'TMDB rating', type: 'toggle', needs: 'showInfo' },
+      { name: 'showInfo', label: 'Streaming service icon + ratings', type: 'toggle', help: 'Netflix / Disney+ … icon and the scores.' },
+      { name: 'showMeta', label: 'Ratings', type: 'toggle', needs: 'showInfo' },
+      { name: 'ratings', label: 'Which scores', type: 'multi', needs: 'showMeta', choices: [['imdb', 'IMDb'], ['tmdb', 'TMDB'], ['rt', 'Rotten Tomatoes']],
+        help: DATA.ratingsKey ? 'A score is left out when a title doesn’t have one yet.' : 'IMDb and Rotten Tomatoes need MDBLIST_API_KEY on the server; until then only TMDB shows.' },
       { name: 'ratingPos', label: 'Rating position', type: 'seg', choices: [['bottom', 'Under the title'], ['top-right', 'Top-right badge']], needs: 'showMeta' },
-      { name: 'showGenre', label: 'Genre', type: 'toggle', needs: 'showMeta', help: 'e.g. “Drama” next to the rating, under the title.' },
-      { name: 'metaChip', label: 'Dark chip behind genre + rating', type: 'toggle', needs: 'showMeta' },
-      { name: 'region', label: 'Country', type: 'select', help: 'Whose streaming services to show, and for “Now Streaming” vs “Rent or Buy”.',
+      { name: 'showGenre', label: 'Genre', type: 'toggle', needs: 'showMeta', help: 'e.g. “Drama” next to the ratings, under the title.' },
+      { name: 'metaChip', label: 'Dark chip behind genre + ratings', type: 'toggle', needs: 'showMeta' },
+      { name: 'region', label: 'Country', type: 'select', help: 'Whose streaming services to show, and when to say “Now Streaming”.',
         choices: [['NZ', 'New Zealand'], ['AU', 'Australia'], ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['IE', 'Ireland'], ['IN', 'India'], ['PH', 'Philippines'], ['SG', 'Singapore'], ['MY', 'Malaysia'], ['ID', 'Indonesia'], ['ZA', 'South Africa'], ['DE', 'Germany'], ['FR', 'France'], ['ES', 'Spain'], ['IT', 'Italy'], ['NL', 'Netherlands'], ['BR', 'Brazil'], ['MX', 'Mexico'], ['JP', 'Japan'], ['KR', 'South Korea']] }
     ],
     'g-art': [
@@ -216,6 +219,19 @@
           seg.appendChild(b);
         });
         wrap.appendChild(seg);
+      } else if (f.type === 'multi') {
+        // several can be on; the value is a comma list in the choices' order, e.g. "imdb,rt"
+        var multi = el('div', { 'class': 'seg', role: 'group', 'aria-label': f.label, id: id });
+        var on = function () { return String(state[f.name] || '').split(','); };
+        f.choices.forEach(function (c) {
+          var b = el('button', { type: 'button', 'data-v': c[0], 'aria-pressed': String(on().indexOf(c[0]) >= 0), text: c[1] });
+          b.addEventListener('click', function () {
+            var now = on(), want = now.indexOf(c[0]) >= 0 ? now.filter(function (v) { return v !== c[0]; }) : now.concat(c[0]);
+            set(f.name, f.choices.map(function (x) { return x[0]; }).filter(function (v) { return want.indexOf(v) >= 0; }).join(','));
+          });
+          multi.appendChild(b);
+        });
+        wrap.appendChild(multi);
       } else if (f.type === 'range') {
         var v = el('span', { 'class': 'val', text: Number(state[f.name]).toFixed(2) });
         head.appendChild(v);
@@ -243,6 +259,10 @@
     var f = fields[name];
     if (f && f.def.type === 'seg') {
       f.node.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-v') === value)); });
+    }
+    if (f && f.def.type === 'multi') {
+      var list = String(value || '').split(',');
+      f.node.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', String(list.indexOf(b.getAttribute('data-v')) >= 0)); });
     }
     refresh();
   }

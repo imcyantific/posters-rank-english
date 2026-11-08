@@ -7,6 +7,7 @@ const path = require('path');
 const { tmdbGet, memo, rankLogos } = require('./tmdb');
 const { generatePoster, generateBackdrop } = require('./poster');
 const { determineTag } = require('./tags');
+const { getExtRatings, hasRatingsKey } = require('./ratings');
 const { SCHEMA, BUILT_IN, opt, prefix, configMiddleware } = require('./options');
 
 const app = express();
@@ -220,7 +221,26 @@ const POSTER_META = () => opt('showMeta');
 const POSTER_GENRE = () => opt('showGenre');
 const PROVIDER_REGION = () => opt('region');
 
-function posterInfo(details) {
+// The scores for the rating line, in the order chosen in RATINGS (default IMDb, TMDB,
+// Rotten Tomatoes): [{ src: 'imdb', text: '7.5' }, { src: 'tmdb', text: '7.4' },
+// { src: 'rt', text: '85%', fresh: true }]. IMDb and RT come from MDBList (ratings.js)
+// and are simply left out when there's no key or no score.
+async function ratingList(details, tmdbType) {
+  const want = String(opt('ratings') || '').split(',').filter(Boolean);
+  if (!want.length) return [];
+  const ext = want.includes('imdb') || want.includes('rt')
+    ? await getExtRatings(tmdbType, details.id).catch(() => null)
+    : null;
+  const out = [];
+  for (const src of want) {
+    if (src === 'imdb' && ext?.imdb) out.push({ src, text: ext.imdb });
+    if (src === 'tmdb' && details.vote_count > 0 && details.vote_average) out.push({ src, text: details.vote_average.toFixed(1) });
+    if (src === 'rt' && ext?.rt !== null && ext?.rt !== undefined) out.push({ src, text: `${ext.rt}%`, fresh: ext.rt >= 60 });
+  }
+  return out;
+}
+
+async function posterInfo(details, tmdbType) {
   if (!POSTER_INFO() || !details) return null;
   const regions = details['watch/providers']?.results || {};
   const region = regions[PROVIDER_REGION()] || regions.US || Object.values(regions)[0];
@@ -228,8 +248,8 @@ function posterInfo(details) {
     .slice()
     .sort((a, b) => (a.display_priority ?? 99) - (b.display_priority ?? 99))[0];
   const genre = POSTER_META() && POSTER_GENRE() ? details.genres?.[0]?.name || null : null;
-  const rating = POSTER_META() && details.vote_count > 0 && details.vote_average ? details.vote_average.toFixed(1) : null;
-  return { providerLogoPath: provider?.logo_path || null, genre, rating };
+  const ratings = POSTER_META() ? await ratingList(details, tmdbType) : [];
+  return { providerLogoPath: provider?.logo_path || null, genre, ratings };
 }
 
 // ---------- Metadata for the hero banner (type • genre • year) ----------
@@ -315,7 +335,8 @@ app.get('/configure', (req, res) => {
     host: HOST_URL,
     options: Object.fromEntries(Object.keys(SCHEMA).map(k => [k, opt(k)])),
     keys: Object.fromEntries(Object.entries(SCHEMA).map(([k, o]) => [k, o.key])),
-    builtIn: BUILT_IN
+    builtIn: BUILT_IN,
+    ratingsKey: hasRatingsKey()
   };
   res.setHeader('Cache-Control', 'no-store');
   res.type('html').send(CONFIGURE_HTML.replace('/*__DATA__*/null', () => JSON.stringify(data).replace(/</g, '\\u003c')));
@@ -405,7 +426,7 @@ app.get('/render-poster', async (req, res) => {
   }
   // The URL already contains rank, tag and version, so the image for a URL never changes:
   // keep it for a week, and serve it instantly while refreshing after that.
-  const buffer = await generatePoster(tmdbId, type, rank, tag, { images: details?.images, info: posterInfo(details) });
+  const buffer = await generatePoster(tmdbId, type, rank, tag, { images: details?.images, info: await posterInfo(details, type === 'tv' ? 'tv' : 'movie') });
   sendImage(res, buffer, 86400, WEEK, WEEK);
 });
 
@@ -419,7 +440,7 @@ app.get('/render-backdrop', async (req, res) => {
   } catch (e) {
     console.error(`Details failed for backdrop ${tmdbId}:`, e.message);
   }
-  const bdOpts = { images: details?.images, info: posterInfo(details) };
+  const bdOpts = { images: details?.images, info: await posterInfo(details, type === 'tv' ? 'tv' : 'movie') };
   if (debug) {
     // Open the URL with &debug=1 to see the real error text instead of a blank 404
     const started = Date.now();
@@ -446,7 +467,7 @@ app.get('/poster/:id.jpg', async (req, res) => {
     // Full details are needed for Premiere / Finale / New Episode tags
     const details = await loadDetails(type, tmdbId);
     const tag = determineTag(details, type, PROVIDER_REGION());
-    sendImage(res, await generatePoster(tmdbId, type, null, tag, { images: details.images, info: posterInfo(details) }));
+    sendImage(res, await generatePoster(tmdbId, type, null, tag, { images: details.images, info: await posterInfo(details, type) }));
   } catch (err) {
     console.error('Poster Provider Error:', err.message);
     res.status(500).send('Server Error');
@@ -534,9 +555,10 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     const rank = wantRank && pos >= 0 ? pos + 1 : null;
 
     // Reuse the images we already got with the details (one less TMDB call)
+    const info = await posterInfo(details, type);
     const buffer = landscape
-      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug, images: details.images, info: posterInfo(details) })
-      : await generatePoster(tmdbId, type, rank, tag, { images: details.images, info: posterInfo(details) });
+      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug, images: details.images, info })
+      : await generatePoster(tmdbId, type, rank, tag, { images: details.images, info });
     if (!buffer) throw new Error('Image generation failed');
 
     if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));

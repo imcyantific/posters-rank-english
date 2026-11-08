@@ -22,18 +22,11 @@ function fmt(dateStr) {
   return `${MONTHS[m - 1]} ${d}`;
 }
 
-// Streaming / rent / buy offers for one country (falls back to US, then any country).
+// Streaming offers for one country (falls back to US, then any country).
 function offersFor(d, region) {
   const regions = d['watch/providers']?.results || {};
   const r = regions[region] || regions.US || Object.values(regions)[0] || {};
-  return { stream: (r.flatrate || []).length > 0, rentBuy: (r.rent || []).length + (r.buy || []).length > 0 };
-}
-
-// 136 -> "2h 16m", 45 -> "45m"
-function runtime(mins) {
-  if (!mins) return '';
-  const h = Math.floor(mins / 60), m = mins % 60;
-  return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+  return { stream: (r.flatrate || []).length > 0 };
 }
 
 function movieTag(d, t, region) {
@@ -43,16 +36,10 @@ function movieTag(d, t, region) {
   const age = t - rd;
   if (age <= 30) return 'Just Added';
   if (age <= 60) return 'In Theaters';
-  // Up to ~6 months after release: say where it is now.
-  if (age <= 180) {
-    const { stream, rentBuy } = offersFor(d, region);
-    if (stream) return 'Now Streaming';
-    if (rentBuy) return 'Rent or Buy';
-  }
-  // Older films: year + running time, e.g. "1999 · 2h 16m".
-  const year = String(d.release_date).slice(0, 4);
-  const rt = runtime(d.runtime);
-  return rt ? `${year} \u00b7 ${rt}` : year;
+  // Up to ~6 months after release, if it's on a streaming service in your country.
+  if (age <= 180 && offersFor(d, region).stream) return 'Now Streaming';
+  // Otherwise nothing new to say: no pill (unless it's ranked, then the rank shows).
+  return '';
 }
 
 function tvTag(d, t) {
@@ -100,13 +87,12 @@ function tvTag(d, t) {
   // 9. A miniseries -> "Limited Series"
   if (d.type === 'Miniseries') return 'Limited Series';
 
-  // 10. Otherwise how many seasons it has -> "6 Seasons"
-  const n = d.number_of_seasons || (d.seasons || []).filter(s => s.season_number > 0).length;
-  if (n > 0) return n === 1 ? '1 Season' : `${n} Seasons`;
-  return 'Now Streaming';
+  // Otherwise nothing new to say: no pill (unless it's ranked, then the rank shows).
+  return '';
 }
 
-// region: whose streaming offers to check (e.g. NZ), for "Now Streaming" vs "Rent or Buy".
+// region: whose streaming offers to check (e.g. NZ), for "Now Streaming".
+// Returns '' when there's nothing worth a pill.
 function determineTag(details, type, region = 'US') {
   const t = todayNum();
   return type === 'tv' ? tvTag(details || {}, t) : movieTag(details || {}, t, region);
