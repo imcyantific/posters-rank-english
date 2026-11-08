@@ -22,24 +22,15 @@ function fmt(dateStr) {
   return `${MONTHS[m - 1]} ${d}`;
 }
 
-// Streaming offers for one country (falls back to US, then any country).
-function offersFor(d, region) {
-  const regions = d['watch/providers']?.results || {};
-  const r = regions[region] || regions.US || Object.values(regions)[0] || {};
-  return { stream: (r.flatrate || []).length > 0 };
-}
-
-function movieTag(d, t, region) {
+function movieTag(d, t) {
   const rd = dayNum(d.release_date);
   if (rd === null) return 'Coming Soon';
   if (rd > t) return `Coming ${fmt(d.release_date)}`;
   const age = t - rd;
   if (age <= 30) return 'Just Added';
   if (age <= 60) return 'In Theaters';
-  // Up to ~6 months after release, if it's on a streaming service in your country.
-  if (age <= 180 && offersFor(d, region).stream) return 'Now Streaming';
-  // Otherwise nothing new to say: no pill (unless it's ranked, then the rank shows).
-  return '';
+  // Otherwise the default: out of cinemas, so streaming / digital now.
+  return 'Now Streaming';
 }
 
 function tvTag(d, t) {
@@ -87,15 +78,14 @@ function tvTag(d, t) {
   // 9. A miniseries -> "Limited Series"
   if (d.type === 'Miniseries') return 'Limited Series';
 
-  // Otherwise nothing new to say: no pill (unless it's ranked, then the rank shows).
-  return '';
+  // Otherwise the default.
+  return 'Now Streaming';
 }
 
-// region: whose streaming offers to check (e.g. NZ), for "Now Streaming".
-// Returns '' when there's nothing worth a pill.
-function determineTag(details, type, region = 'US') {
+// Falls back to "Now Streaming" when there's nothing newer to say.
+function determineTag(details, type) {
   const t = todayNum();
-  return type === 'tv' ? tvTag(details || {}, t) : movieTag(details || {}, t, region);
+  return type === 'tv' ? tvTag(details || {}, t) : movieTag(details || {}, t);
 }
 
 module.exports = { determineTag, dayNum, todayNum };

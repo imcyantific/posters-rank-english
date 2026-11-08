@@ -6,7 +6,7 @@ catalogs (from TMDB's daily trending list), plus a **poster image service** that
 - the **rank number** (1–10)
 - a frosted, liquid glass or solid-colour **status pill**: *Just Added*, *In Theaters*,
   *Now Streaming*, *New Episode*, *New Ep Nov 12*, *New Season*, *Premiere*, *Finale*,
-  *Coming Oct 24*, *Limited Series* … (no pill when there's nothing new to say)
+  *Coming Oct 24*, *Limited Series* … and *Now Streaming* when there's nothing newer to say
 - the **streaming provider icon** (Netflix, Disney+, Prime Video …)
 - **genre + ratings** (e.g. `Animation • [IMDb] 8.0  [TMDB] 8.2  [RT] 94%`; IMDb and
   Rotten Tomatoes need a free MDBList key)
