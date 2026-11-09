@@ -22,9 +22,14 @@ const CACHE_DIR = process.env.CACHE_DIR || '';
 if (CACHE_DIR) {
   const { diskCache } = require('./diskcache');
   const selfUrl = () => `http://127.0.0.1:${process.env.PORT || 3000}`;
+  // Custom URL images (/top10/...) have today's rank drawn in, but their URL doesn't say
+  // which Top 10 list it came from. So DIGITAL_ONLY on and off keep separate copies, and
+  // switching it never shows ranks from the other list.
+  const listSalt = () => (movieListName() === 'movie' ? '' : `${movieListName()}|`);
   app.use(['/render-poster', '/render-backdrop', '/poster', '/top10'], diskCache(path.join(CACHE_DIR, 'images'), {
     selfUrl,
-    maxGB: Math.max(0.1, Number(process.env.CACHE_MAX_GB) || 2)
+    maxGB: Math.max(0.1, Number(process.env.CACHE_MAX_GB) || 2),
+    keyFor: url => (url.includes('/top10/') ? listSalt() + url : url)
   }));
 }
 
@@ -87,6 +92,16 @@ function secondsUntilMidnight() {
 const DIGITAL_ONLY = String(process.env.DIGITAL_ONLY || 'off').toLowerCase() === 'on';
 const DIGITAL_REGION = String(process.env.DIGITAL_REGION || '').toUpperCase();
 
+// Name of the saved daily list. The movie list depends on DIGITAL_ONLY (and its region),
+// so each setting gets its own list: change it, restart, and the new list is used
+// straight away instead of the day's list made with the old setting. Shows don't
+// depend on it (DIGITAL_ONLY only filters movies).
+function listName(tmdbType) {
+  if (tmdbType !== 'movie' || !DIGITAL_ONLY) return tmdbType;
+  return DIGITAL_REGION ? `movie-digital-${DIGITAL_REGION}` : 'movie-digital';
+}
+function movieListName() { return listName('movie'); }
+
 async function hasDigitalRelease(movieId) {
   try {
     const data = await tmdbGet(`/movie/${movieId}/release_dates`);
@@ -124,11 +139,11 @@ const dailyLoading = {};
 // so a restart mid-day can't reshuffle the ranks).
 async function getDailyTop10FromDisk(tmdbType) {
   const day = dayKey();
-  const key = `${tmdbType}:${day}`;
+  const key = `${listName(tmdbType)}:${day}`;
   if (dailyCache[key]) return dailyCache[key];
   if (!dailyLoading[key]) {
     dailyLoading[key] = (async () => {
-      const file = path.join(CACHE_DIR, 'lists', `top10-${tmdbType}-${day}.json`);
+      const file = path.join(CACHE_DIR, 'lists', `top10-${listName(tmdbType)}-${day}.json`);
       try {
         return JSON.parse(await fs.promises.readFile(file, 'utf8'));
       } catch (e) {
@@ -146,12 +161,13 @@ async function getDailyTop10FromDisk(tmdbType) {
 
 async function getDailyTop10(tmdbType) {
   if (CACHE_DIR) return getDailyTop10FromDisk(tmdbType);
-  const key = `${tmdbType}:${dayKey()}`;
+  const key = `${listName(tmdbType)}:${dayKey()}`;
   if (dailyCache[key]) return dailyCache[key];
   let items;
   try {
-    // Goes through Vercel's CDN, so every server instance gets the same frozen list
-    const { data } = await axios.get(`${HOST_URL}/top10-list/${tmdbType}/${dayKey()}.json`, { timeout: 8000 });
+    // Goes through Vercel's CDN, so every server instance gets the same frozen list.
+    // ?list= gives each DIGITAL_ONLY setting its own cached copy.
+    const { data } = await axios.get(`${HOST_URL}/top10-list/${tmdbType}/${dayKey()}.json`, { params: { list: listName(tmdbType) }, timeout: 8000 });
     items = data.items;
   } catch (e) {
     // Don't keep this copy: other instances may get a different list from TMDB,

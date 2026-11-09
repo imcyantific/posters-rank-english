@@ -25,12 +25,14 @@ async function writeAtomic(file, data) {
   await fsp.rename(tmp, file);
 }
 
-function diskCache(dir, { selfUrl, maxGB = 2 }) {
+// keyFor (optional): turns a URL into the cache key, e.g. to keep separate copies when a
+// server setting changes what the same URL draws.
+function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url }) {
   const maxBytes = maxGB * 1e9;
   fs.mkdirSync(dir, { recursive: true });
   const refreshing = new Set();
   const files = url => {
-    const key = crypto.createHash('sha1').update(url).digest('hex');
+    const key = crypto.createHash('sha1').update(keyFor(url)).digest('hex');
     return { img: path.join(dir, `${key}.img`), meta: path.join(dir, `${key}.json`) };
   };
 
