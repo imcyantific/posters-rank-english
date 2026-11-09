@@ -22,9 +22,15 @@ const CACHE_DIR = process.env.CACHE_DIR || '';
 if (CACHE_DIR) {
   const { diskCache } = require('./diskcache');
   const selfUrl = () => `http://127.0.0.1:${process.env.PORT || 3000}`;
+  // Custom URL images (/top10/...) have today's rank drawn in, but a plain link's URL
+  // doesn't say which Top 10 list it came from. So DIGITAL_ONLY on and off keep separate
+  // copies, and switching it never shows ranks from the other list. (Links from
+  // /configure carry the setting in their code, so they're separate anyway.)
+  const listSalt = () => (movieListName() === 'movie' ? '' : `${movieListName()}|`);
   app.use(['/render-poster', '/render-backdrop', '/poster', '/top10'], diskCache(path.join(CACHE_DIR, 'images'), {
     selfUrl,
-    maxGB: Math.max(0.1, Number(process.env.CACHE_MAX_GB) || 2)
+    maxGB: Math.max(0.1, Number(process.env.CACHE_MAX_GB) || 2),
+    keyFor: url => (url.includes('/top10/') ? listSalt() + url : url)
   }));
 }
 
@@ -81,11 +87,22 @@ function secondsUntilMidnight() {
   return Math.max(60, left);
 }
 
-// DIGITAL_ONLY=on in Vercel -> the movie Top 10 skips titles without a digital release yet
-// (still only in cinemas). Uses TMDB release type 4 = Digital, already released.
+// DIGITAL_ONLY=on (or "Skip movies only in cinemas" on /configure) -> the movie Top 10
+// skips titles without a digital release yet (still only in cinemas). Uses TMDB release
+// type 4 = Digital, already released. Shows aren't affected.
 // DIGITAL_REGION (e.g. NZ or US) limits the check to one country; empty = any country.
-const DIGITAL_ONLY = String(process.env.DIGITAL_ONLY || 'off').toLowerCase() === 'on';
+const DIGITAL_ONLY = () => opt('digitalOnly');
 const DIGITAL_REGION = String(process.env.DIGITAL_REGION || '').toUpperCase();
+
+// Name of the saved daily list. The movie list depends on DIGITAL_ONLY (and its region),
+// so each setting gets its own list, used straight away when the setting changes
+// (instead of the day's list made with the old setting). Shows don't depend on it.
+// listName('movie', true) names the digital-only list whatever the current setting.
+function listName(tmdbType, digital = DIGITAL_ONLY()) {
+  if (tmdbType !== 'movie' || !digital) return tmdbType;
+  return DIGITAL_REGION ? `movie-digital-${DIGITAL_REGION}` : 'movie-digital';
+}
+function movieListName() { return listName('movie'); }
 
 async function hasDigitalRelease(movieId) {
   try {
@@ -100,10 +117,10 @@ async function hasDigitalRelease(movieId) {
   }
 }
 
-async function fetchTrendingFromTmdb(tmdbType) {
+async function fetchTrendingFromTmdb(tmdbType, digital = DIGITAL_ONLY()) {
   const getPage = async page => (await tmdbGet(`/trending/${tmdbType}/day`, { page })).results || [];
 
-  if (!(DIGITAL_ONLY && tmdbType === 'movie')) return (await getPage(1)).slice(0, 10);
+  if (!(digital && tmdbType === 'movie')) return (await getPage(1)).slice(0, 10);
 
   // Walk down the trending list (up to 5 pages = 100 titles), keeping trending order
   const picked = [];
@@ -124,11 +141,11 @@ const dailyLoading = {};
 // so a restart mid-day can't reshuffle the ranks).
 async function getDailyTop10FromDisk(tmdbType) {
   const day = dayKey();
-  const key = `${tmdbType}:${day}`;
+  const key = `${listName(tmdbType)}:${day}`;
   if (dailyCache[key]) return dailyCache[key];
   if (!dailyLoading[key]) {
     dailyLoading[key] = (async () => {
-      const file = path.join(CACHE_DIR, 'lists', `top10-${tmdbType}-${day}.json`);
+      const file = path.join(CACHE_DIR, 'lists', `top10-${listName(tmdbType)}-${day}.json`);
       try {
         return JSON.parse(await fs.promises.readFile(file, 'utf8'));
       } catch (e) {
@@ -146,12 +163,13 @@ async function getDailyTop10FromDisk(tmdbType) {
 
 async function getDailyTop10(tmdbType) {
   if (CACHE_DIR) return getDailyTop10FromDisk(tmdbType);
-  const key = `${tmdbType}:${dayKey()}`;
+  const key = `${listName(tmdbType)}:${dayKey()}`;
   if (dailyCache[key]) return dailyCache[key];
   let items;
   try {
-    // Goes through Vercel's CDN, so every server instance gets the same frozen list
-    const { data } = await axios.get(`${HOST_URL}/top10-list/${tmdbType}/${dayKey()}.json`, { timeout: 8000 });
+    // Goes through Vercel's CDN, so every server instance gets the same frozen list.
+    // ?list= gives each DIGITAL_ONLY setting its own cached copy.
+    const { data } = await axios.get(`${HOST_URL}/top10-list/${tmdbType}/${dayKey()}.json`, { params: { list: listName(tmdbType) }, timeout: 8000 });
     items = data.items;
   } catch (e) {
     // Don't keep this copy: other instances may get a different list from TMDB,
@@ -170,7 +188,7 @@ app.get('/top10-list/:type/:day.json', async (req, res) => {
     return res.status(404).json({ items: [] });
   }
   try {
-    const items = await fetchTrendingFromTmdb(type);
+    const items = await fetchTrendingFromTmdb(type, req.query.list === listName(type, true));
     res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=86400');
     res.json({ day, items });
   } catch (err) {

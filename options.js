@@ -41,6 +41,8 @@ const SCHEMA = {
                    const want = String(v ?? '').toLowerCase().split(/[\s,]+/);
                    return ['imdb', 'tmdb', 'rt'].filter(s => want.includes(s)).join(',');
                  } },
+  // Movie Top 10 skips titles still only in cinemas (no digital release yet). Shows aren't affected.
+  digitalOnly:   { key: 'do', env: 'DIGITAL_ONLY', def: false, parse: v => onOff(v, false) },
   metaChip:      { key: 'mc', env: 'META_CHIP', def: false, parse: v => onOff(v, false) },
   region:        { key: 're', env: 'PROVIDER_REGION', def: 'NZ',
                    parse: v => (/^[a-z]{2}$/i.test(String(v ?? '')) ? String(v).toUpperCase() : 'NZ') }
