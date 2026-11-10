@@ -61,3 +61,11 @@ The same `index.js` runs in both, and code must work in each:
 - External lookups (MDBList, Cinemeta) are optional: on error or timeout, render without that data rather than failing the request.
 - Comments and README text are written in plain language for a non-developer owner; keep that style, and update the README table when adding or changing an env variable.
 - New files needed at runtime on Vercel must be added to `includeFiles` in `vercel.json`.
+
+## Session handoff
+
+- At the start of every session, read `handoff.md` before doing anything else.
+- When I say "let's switch to a new session", update `handoff.md` with:
+  current status, decisions made, problems hit, and next steps.
+- Keep `handoff.md` under about 100 lines. Remove anything outdated.
+- When I say "let's continue", read `handoff.md` and summarize where we left off.
