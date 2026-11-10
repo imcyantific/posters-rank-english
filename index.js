@@ -293,6 +293,23 @@ function pickLogo(details) {
   return best ? `https://image.tmdb.org/t/p/w500${best.file_path}` : undefined;
 }
 
+// Apps open a title's page by asking a details addon (Cinemeta) for its IMDb id. For a
+// brand-new title Cinemeta can answer with a half-empty record (episodes but no name),
+// and the app then shows "Failed to load". So we check: when Cinemeta has no name for
+// it, the catalog sends the tmdb: id instead, which apps look up on TMDB.
+// Checked once per title every 6 hours; if Cinemeta can't be reached we assume it's fine.
+const CINEMETA_URL = process.env.CINEMETA_URL || 'https://v3-cinemeta.strem.io';
+const cinemetaKnows = memo(async (type, imdbId) => {
+  try {
+    const { data } = await axios.get(`${CINEMETA_URL}/meta/${type}/${imdbId}.json`, { timeout: 4000 });
+    return !!data?.meta?.name;
+  } catch (e) {
+    if (e.response?.status === 404) return false;
+    console.error(`Cinemeta check failed for ${imdbId}:`, e.message);
+    return true;
+  }
+}, 6 * 3600 * 1000, 500);
+
 async function buildMeta(item, index, type, tmdbType) {
   let details = item; // fallback if the details call fails
   try {
@@ -307,8 +324,9 @@ async function buildMeta(item, index, type, tmdbType) {
   const year = yearOf(details.release_date || details.first_air_date);
 
   const query = `type=${tmdbType}&tmdbId=${item.id}&rank=${index + 1}&tag=${encodeURIComponent(tag)}&v=${IMG_VERSION}${POSTER_META() ? '' : 'm'}`;
+  const useImdb = USE_IMDB_IDS && imdbId && await cinemetaKnows(`${type}:${imdbId}`, type, imdbId);
   const meta = {
-    id: USE_IMDB_IDS && imdbId ? imdbId : `tmdb:${item.id}`,
+    id: useImdb ? imdbId : `tmdb:${item.id}`,
     type,
     // Separate ids like Cinemeta sends, so apps can fill {imdb_id} / {tmdb_id} in custom poster URLs
     imdb_id: imdbId || undefined,
@@ -559,7 +577,10 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
   const debug = !!req.query.debug;
   try {
     const { shape, id } = req.params;
-    const resolved = await resolveTitle(id, req.query.type, req.query.tmdb);
+    // If the app couldn't fill in the id in the path (e.g. "tmdb:" with no number), use
+    // the IMDb id from ?imdb= when the link has one.
+    const emptyId = /^(tmdb:)?$/.test(String(id).trim());
+    const resolved = await resolveTitle(emptyId && req.query.imdb ? req.query.imdb : id, req.query.type, req.query.tmdb);
     if (!resolved) throw new Error(`Could not find "${id}" on TMDB`);
 
     const { tmdbId, type } = resolved;
@@ -641,11 +662,11 @@ app.get('/warm', async (req, res) => {
         if (u && u.startsWith(HOST_URL)) urls.add(u);
       }
       const template = process.env.WARM_CUSTOM_URL;
-      if (template && m.imdb_id) {
+      if (template && (m.imdb_id || !template.includes('{imdb_id}'))) {
         for (const shape of ['portrait', 'landscape']) {
           urls.add(template
             .replace('{shape}', shape)
-            .replace('{imdb_id}', m.imdb_id)
+            .replace('{imdb_id}', m.imdb_id || '')
             .replace('{type}', m.type)
             .replace('{tmdb_id}', String(m.moviedb_id || '')));
         }
