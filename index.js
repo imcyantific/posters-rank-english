@@ -577,7 +577,10 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
   const debug = !!req.query.debug;
   try {
     const { shape, id } = req.params;
-    const resolved = await resolveTitle(id, req.query.type, req.query.tmdb);
+    // If the app couldn't fill in the id in the path (e.g. "tmdb:" with no number), use
+    // the IMDb id from ?imdb= when the link has one.
+    const emptyId = /^(tmdb:)?$/.test(String(id).trim());
+    const resolved = await resolveTitle(emptyId && req.query.imdb ? req.query.imdb : id, req.query.type, req.query.tmdb);
     if (!resolved) throw new Error(`Could not find "${id}" on TMDB`);
 
     const { tmdbId, type } = resolved;
