@@ -876,9 +876,10 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
     ]);
     // No logo of our own means the poster has its title printed in it (no textless art on
     // TMDB); the genre/scores line would sit on top of that title, so leave it out.
+    // Scores in the top-right badge are nowhere near the title, so those stay.
     const ownTitle = logoPaths.length > 0;
     const infoForDraw = info
-      ? { genre: ownTitle ? info.genre : null, ratings: ownTitle ? info.ratings : [], providerImg }
+      ? { genre: ownTitle ? info.genre : null, ratings: ownTitle || RATING_TOP() ? info.ratings : [], providerImg }
       : null;
     return await toJpeg(composePoster(posterImg, rank, tag, logoImg, infoForDraw));
   } catch (err) {
