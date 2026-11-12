@@ -183,10 +183,12 @@ function blurRegion(srcCanvas, L, x, y, w, h, pad = 40, shrink = 10) {
 // "Liquid glass" background for the pill: the picture behind it, lightly blurred and
 // bent near the edges like a curved lens (content just outside the edge is pulled in and
 // squeezed), plus a little extra brightness and colour. Works on real pixels.
-function drawLiquidGlass(ctx, L, x, y, w, h, r, atTop) {
+// free = a badge floating on the picture (all four edges bend, and more gently, since
+// it is much smaller than the pill) instead of a tab hanging from the top/bottom border.
+function drawLiquidGlass(ctx, L, x, y, w, h, r, atTop, free = false) {
   const S = L.S;
   const cw = ctx.canvas.width, ch = ctx.canvas.height;
-  const band = h * 0.5 * S;           // how far in from the edge the bending reaches
+  const band = h * (free ? 0.3 : 0.5) * S; // how far in from the edge the bending reaches
   const shift = band * 0.75;          // strongest bend, at the very edge
   const m = Math.ceil(shift) + 2;     // extra pixels around the pill we may sample from
   const X0 = Math.max(0, Math.round(x * S) - m), Y0 = Math.max(0, Math.round(y * S) - m);
@@ -211,9 +213,10 @@ function drawLiquidGlass(ctx, L, x, y, w, h, r, atTop) {
   // pushed outside it, so only the three visible edges bend.
   const R = r * S;
   const hw = (w * S) / 2;
-  const hh = (h * S) / 2 + R;
+  const hh = (h * S) / 2 + (free ? 0 : R);
   const cx = (x + w / 2) * S;
-  const cy = (atTop ? y * S - R : (y + h) * S + R) + (atTop ? hh - R : -(hh - R));
+  const cy = free ? (y + h / 2) * S
+    : (atTop ? y * S - R : (y + h) * S + R) + (atTop ? hh - R : -(hh - R));
   for (let py = 0; py < RH; py++) {
     for (let px = 0; px < RW; px++) {
       const gx = X0 + px + 0.5, gy = Y0 + py + 0.5;
@@ -255,7 +258,7 @@ function drawLiquidGlass(ctx, L, x, y, w, h, r, atTop) {
 // Shine and rim on top of the liquid glass: a dark wash that gets stronger over bright
 // pictures (keeps the white text readable), a bright inner highlight along the top edge,
 // and a light rim that fades at the sides.
-function drawGlassShine(ctx, x, y, w, h, r, atTop, shape, brightness = 0) {
+function drawGlassShine(ctx, x, y, w, h, r, atTop, shape, brightness = 0, free = false) {
   ctx.save();
   shape(ctx, x, y, w, h, r);
   ctx.clip();
@@ -282,7 +285,8 @@ function drawGlassShine(ctx, x, y, w, h, r, atTop, shape, brightness = 0) {
   ctx.save();
   ctx.strokeStyle = rim;
   ctx.lineWidth = 2;
-  if (atTop) shape(ctx, x + 1, y - 1, w - 2, h, r);
+  if (free) shape(ctx, x + 1, y + 1, w - 2, h - 2, r);
+  else if (atTop) shape(ctx, x + 1, y - 1, w - 2, h, r);
   else shape(ctx, x + 1, y + 1, w - 2, h, r);
   ctx.stroke();
   ctx.restore();
@@ -663,16 +667,26 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
   const w = padX + scoresRow(ctx, ratings, f, 0, 0, null) + padX;
   const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
   const y = L.providerTop + (L.providerSize - h) / 2 + offsetY;
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-  ctx.shadowBlur = 10;
-  ctx.shadowOffsetY = 2;
-  ctx.fillStyle = 'rgba(12, 12, 16, 0.72)';
-  roundedRectPath(ctx, x, y, w, h, h * 0.3);
-  ctx.fill();
-  ctx.shadowColor = 'transparent';
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  const glass = PILL_STYLE() === 'glass';
+  if (glass) {
+    // Same liquid glass as the pill, so the two match.
+    const light = drawLiquidGlass(ctx, L, x, y, w, h, h * 0.3, false, true);
+    drawGlassShine(ctx, x, y, w, h, h * 0.3, false, roundedRectPath, light, true);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'; // clear glass shows the picture, so shade the text
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 1;
+  } else {
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = 'rgba(12, 12, 16, 0.72)';
+    roundedRectPath(ctx, x, y, w, h, h * 0.3);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
   ctx.fillStyle = '#ffffff';
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 0.8;
