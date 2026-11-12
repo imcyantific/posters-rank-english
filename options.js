@@ -19,7 +19,7 @@ const oneOf = (values, def) => v => {
 
 // key: short name used in the link code. env: the .env setting it replaces.
 const SCHEMA = {
-  catalogArt:    { key: 'ca', env: 'CATALOG_ART', def: 'plain', parse: oneOf(['plain', 'poster', 'ranked'], 'plain') },
+  catalogArt:    { key: 'ca', env: 'CATALOG_ART', def: 'plain', parse: oneOf(['plain', 'poster', 'ranked', 'nologo'], 'plain') },
   heroLogo:      { key: 'hl', env: 'META_LOGO', def: true, parse: v => onOff(v, true) },
   posterStyle:   { key: 'ps', env: 'POSTER_STYLE', def: 'always', parse: oneOf(['always', 'logo', 'original'], 'always') },
   // color = a solid tab in a colour taken from the artwork

@@ -37,7 +37,7 @@ if (CACHE_DIR) {
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 40;
+const IMG_VERSION = 41;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -51,9 +51,15 @@ const USE_IMDB_IDS = true;
 //                       and the background (landscape tiles and hero banner).
 //   poster           -> ranked art only in the poster; the background stays the plain
 //                       TMDB backdrop, so the hero banner looks clean.
+//   nologo           -> like "ranked", but the landscape art is drawn WITHOUT the title
+//                       logo, for apps that lay their own logo on landscape cards
+//                       (Xperience with Poster art = Original). The rank is part of the
+//                       image link, so the numbers always match the row order, and the
+//                       title shows only once.
 // (These and the poster options below can also be chosen per install on /configure.)
-const RANKED_POSTER = () => ['ranked', 'poster'].includes(opt('catalogArt'));
-const RANKED_BACKGROUND = () => opt('catalogArt') === 'ranked';
+const RANKED_POSTER = () => ['ranked', 'poster', 'nologo'].includes(opt('catalogArt'));
+const RANKED_BACKGROUND = () => ['ranked', 'nologo'].includes(opt('catalogArt'));
+const NO_LOGO_BACKGROUND = () => opt('catalogArt') === 'nologo';
 
 // META_LOGO=off stops sending the "logo" field (hero banner title logo).
 const SEND_LOGO = () => opt('heroLogo');
@@ -348,13 +354,14 @@ async function buildMeta(item, index, type, tmdbType) {
   };
 
   // Plain mode: clean TMDB backdrop, so hero banners look clean and Xperience can override it.
-  if (RANKED_BACKGROUND()) meta.background = `${HOST_URL}${prefix()}/render-backdrop?${query}`;
+  if (RANKED_BACKGROUND()) meta.background = `${HOST_URL}${prefix()}/render-backdrop?${query}${NO_LOGO_BACKGROUND() ? '&logo=0' : ''}`;
   else if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
   // TMDB title logo for the hero banner. Not sent when the background is our ranked art:
   // that already has the logo drawn in, and apps like Nuvio lay meta.logo on top of the
-  // background in landscape rows, so the title would show twice.
+  // background in landscape rows, so the title would show twice. (The "nologo" art has
+  // no logo drawn in, so there the app's own logo is the only one and it is sent.)
   const logo = pickLogo(details);
-  if (SEND_LOGO() && logo && !RANKED_BACKGROUND()) meta.logo = logo;
+  if (SEND_LOGO() && logo && (!RANKED_BACKGROUND() || NO_LOGO_BACKGROUND())) meta.logo = logo;
   return meta;
 }
 
@@ -476,7 +483,8 @@ app.get('/render-backdrop', async (req, res) => {
   } catch (e) {
     console.error(`Details failed for backdrop ${tmdbId}:`, e.message);
   }
-  const bdOpts = { images: details?.images, info: await posterInfo(details, type === 'tv' ? 'tv' : 'movie') };
+  // &logo=0 (sent by the "nologo" catalog art) leaves the title logo out of the image.
+  const bdOpts = { images: details?.images, info: await posterInfo(details, type === 'tv' ? 'tv' : 'movie'), noLogo: req.query.logo === '0' };
   if (debug) {
     // Open the URL with &debug=1 to see the real error text instead of a blank 404
     const started = Date.now();

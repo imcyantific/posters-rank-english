@@ -884,7 +884,8 @@ async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null,
         `https://image.tmdb.org/t/p/original${backdropPath}`,
         `https://image.tmdb.org/t/p/w1280${backdropPath}`
       ),
-      loadLogo(logoPaths),
+      // noLogo: the app lays its own title logo on this image, so don't draw ours too
+      opts.noLogo ? null : loadLogo(logoPaths),
       loadProviderIcon(info?.providerLogoPath)
     ]);
     const infoForDraw = info ? { genre: info.genre, ratings: info.ratings || [], providerImg } : null;

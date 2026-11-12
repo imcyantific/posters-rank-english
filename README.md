@@ -119,7 +119,7 @@ there ignore the `.env` values for those.
 ### Catalog
 | Variable | Default | Options |
 |---|---|---|
-| `CATALOG_ART` | `plain` | `plain`: normal TMDB poster + backdrop · `poster`: rank baked into the poster, backdrop stays clean for the hero banner · `ranked`: rank baked into both poster and backdrop |
+| `CATALOG_ART` | `plain` | `plain`: normal TMDB poster + backdrop · `poster`: rank baked into the poster, backdrop stays clean for the hero banner · `ranked`: rank baked into both poster and backdrop · `nologo`: like `ranked`, but the landscape art has no title logo drawn in (for apps that add their own logo to landscape cards, e.g. Xperience with Poster art = Original) |
 | `META_LOGO` | `on` | `off` stops sending the title logo for the hero banner (never sent with `CATALOG_ART=ranked`, whose landscape art already has the logo) |
 | `RANK_TZ` | `Pacific/Auckland` | Time zone whose midnight starts a new Top 10 day |
 | `DIGITAL_ONLY` | `off` | `on` = movie Top 10 skips titles that are only in cinemas (no digital release yet). Shows aren't affected. Also on `/configure` ("Skip movies only in cinemas"). Each setting keeps its own daily list, so a change takes effect straight away |
@@ -225,7 +225,7 @@ images served from Vercel's cache don't. To stay under it:
 | Problem | Fix |
 |---|---|
 | Xperience **Verify** says `Custom URL: HTTP 500` | Open the URL in a browser with `&debug=1` added to see the real error. Check Vercel → Logs. |
-| Numbers out of order / duplicated | Use `CATALOG_ART=poster` with `ranks=none`, then **Re-sync** in Xperience and reopen Nuvio. |
+| Numbers out of order / duplicated | Use `CATALOG_ART=poster` with `ranks=none`, then **Re-sync** in Xperience and reopen Nuvio. If you use landscape rows and the title logo then shows twice, use `CATALOG_ART=nologo` instead. |
 | Changed a setting but nothing looks different | Redeploy on Vercel, bump `&v=`, Re-sync, reopen Nuvio (see [refresh routine](#after-any-change-the-refresh-routine)). |
 | Some posters have a foreign (e.g. Russian) title under the logo | TMDB tagged that poster as "textless" by mistake. Fix its language on themoviedb.org (can take up to a day to reach apps), and add it to `POSTER_SKIP` for an instant fix. Or use `POSTER_STYLE=logo` (textless art only on ranked posters) or `original`. |
 | Foreign film / anime poster has no title | It uses the original-language poster when there's no English one. If TMDB has none with a title, there's nothing better to show. |
