@@ -27,10 +27,23 @@ if (CACHE_DIR) {
   // copies, and switching it never shows ranks from the other list. (Links from
   // /configure carry the setting in their code, so they're separate anyway.)
   const listSalt = () => (movieListName() === 'movie' ? '' : `${movieListName()}|`);
+  // A Custom URL link is the same every day, but its picture depends on today's rank.
+  // So before looking in the cache we work out the rank, and:
+  //  - each rank number gets its own saved copy (a title that enters the Top 10, or moves
+  //    from #3 to #7, never gets yesterday's picture from the cache), and
+  //  - when ranks are drawn, nobody outside may keep a picture past midnight, even a
+  //    no-rank one, because the title could be in tomorrow's Top 10.
+  app.use('/top10/:shape/:id.jpg', async (req, res, next) => {
+    try { req.top10 = await top10Request(req); } catch (e) { /* the route reports the error */ }
+    next();
+  });
   app.use(['/render-poster', '/render-backdrop', '/poster', '/top10'], diskCache(path.join(CACHE_DIR, 'images'), {
     selfUrl,
     maxGB: Math.max(0.1, Number(process.env.CACHE_MAX_GB) || 2),
-    keyFor: url => (url.includes('/top10/') ? listSalt() + url : url)
+    keyFor: (url, req) => (url.includes('/top10/')
+      ? `${listSalt()}${req.top10?.rank ? `rank${req.top10.rank}|` : ''}${url}`
+      : url),
+    capFor: req => (req.top10?.wantRank ? secondsUntilMidnight() : Infinity)
   }));
 }
 
@@ -580,26 +593,31 @@ async function resolveTitle(rawId, typeHint, tmdbHint) {
 //          landscape -> rank number on landscape only (default)
 //          none      -> never draw rank numbers
 // debug=1  shows the real error text instead of a blank image
+// Which title a Custom URL request is about, and its rank today (null = not in the Top 10
+// or ranks not wanted). Used by the route and, before it, by the disk cache.
+async function top10Request(req) {
+  const { shape, id } = req.params;
+  // If the app couldn't fill in the id in the path (e.g. "tmdb:" with no number), use
+  // the IMDb id from ?imdb= when the link has one.
+  const emptyId = /^(tmdb:)?$/.test(String(id).trim());
+  const resolved = await resolveTitle(emptyId && req.query.imdb ? req.query.imdb : id, req.query.type, req.query.tmdb);
+  if (!resolved) throw new Error(`Could not find "${id}" on TMDB`);
+  const { tmdbId, type } = resolved;
+  const landscape = String(shape).toLowerCase() === 'landscape';
+  const ranks = String(req.query.ranks || 'landscape').toLowerCase();
+  const wantRank = ranks === 'all' || (ranks === 'landscape' && landscape);
+  const pos = wantRank ? (await getTop10Ids(type)).indexOf(Number(tmdbId)) : -1;
+  return { tmdbId, type, landscape, wantRank, rank: pos >= 0 ? pos + 1 : null };
+}
+
 app.get('/top10/:shape/:id.jpg', async (req, res) => {
   const started = Date.now();
   const debug = !!req.query.debug;
   try {
-    const { shape, id } = req.params;
-    // If the app couldn't fill in the id in the path (e.g. "tmdb:" with no number), use
-    // the IMDb id from ?imdb= when the link has one.
-    const emptyId = /^(tmdb:)?$/.test(String(id).trim());
-    const resolved = await resolveTitle(emptyId && req.query.imdb ? req.query.imdb : id, req.query.type, req.query.tmdb);
-    if (!resolved) throw new Error(`Could not find "${id}" on TMDB`);
-
-    const { tmdbId, type } = resolved;
-    const [details, top10] = await Promise.all([loadDetails(type, tmdbId), getTop10Ids(type)]);
+    const { id } = req.params;
+    const { tmdbId, type, landscape, rank } = req.top10 || await top10Request(req);
+    const details = await loadDetails(type, tmdbId);
     const tag = determineTag(details, type);
-
-    const landscape = String(shape).toLowerCase() === 'landscape';
-    const ranks = String(req.query.ranks || 'landscape').toLowerCase();
-    const pos = top10.indexOf(Number(tmdbId));
-    const wantRank = ranks === 'all' || (ranks === 'landscape' && landscape);
-    const rank = wantRank && pos >= 0 ? pos + 1 : null;
 
     // Reuse the images we already got with the details (one less TMDB call)
     const info = await posterInfo(details, type);

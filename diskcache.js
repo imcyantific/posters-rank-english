@@ -19,6 +19,19 @@ function parseCacheControl(value) {
   return { sMaxAge: get('s-maxage'), swr: get('stale-while-revalidate') };
 }
 
+// A saved copy is handed out again later, so the "keep it for N seconds" numbers written
+// when it was drawn would be too long by then (an image drawn at 9am with "keep until
+// midnight" would, served at 11pm, still say "keep for 15 hours" and Cloudflare / the app
+// would show yesterday's rank number for most of the next day). So every response gets the
+// time that is really left, and never more than `cap` seconds.
+function withTimeLeft(cacheControl, secondsLeft, cap = Infinity) {
+  const left = Math.max(1, Math.floor(Math.min(secondsLeft, cap)));
+  return String(cacheControl || '')
+    .replace(/s-maxage=\d+/, `s-maxage=${left}`)
+    .replace(/(^|[^-])max-age=(\d+)/, (m, pre, n) => `${pre}max-age=${Math.min(Number(n), left)}`)
+    .replace(/,?\s*stale-while-revalidate=\d+/, '');
+}
+
 async function writeAtomic(file, data) {
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   await fsp.writeFile(tmp, data);
@@ -27,12 +40,14 @@ async function writeAtomic(file, data) {
 
 // keyFor (optional): turns a URL into the cache key, e.g. to keep separate copies when a
 // server setting changes what the same URL draws.
-function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url }) {
+// capFor (optional): the longest (in seconds) anyone outside may keep this response, even
+// if the copy on disk is good for longer. Infinity = no extra limit.
+function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url, capFor = () => Infinity }) {
   const maxBytes = maxGB * 1e9;
   fs.mkdirSync(dir, { recursive: true });
   const refreshing = new Set();
-  const files = url => {
-    const key = crypto.createHash('sha1').update(keyFor(url)).digest('hex');
+  const files = (url, req) => {
+    const key = crypto.createHash('sha1').update(keyFor(url, req)).digest('hex');
     return { img: path.join(dir, `${key}.img`), meta: path.join(dir, `${key}.json`) };
   };
 
@@ -96,7 +111,8 @@ function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url }) {
   return async function diskCacheMiddleware(req, res, next) {
     if (req.method !== 'GET' || req.query.debug) return next();
     const url = req.originalUrl;
-    const f = files(url);
+    const f = files(url, req);
+    const cap = capFor(req);
 
     // Serve from disk if we have it
     if (!req.headers['x-cache-refresh']) {
@@ -108,7 +124,8 @@ function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url }) {
           const fresh = now < meta.expires;
           if (!fresh) refresh(url);
           res.setHeader('Content-Type', meta.type);
-          res.setHeader('Cache-Control', meta.cacheControl);
+          // An old copy being refreshed in the background: let others keep it 5 minutes only
+          res.setHeader('Cache-Control', withTimeLeft(meta.cacheControl, fresh ? (meta.expires - now) / 1000 : 300, cap));
           res.setHeader('X-Disk-Cache', fresh ? 'HIT' : 'STALE');
           return res.send(body);
         }
@@ -130,6 +147,7 @@ function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url }) {
           .then(() => writeAtomic(f.meta, JSON.stringify(meta)))
           .catch(e => console.error('Disk cache write failed:', e.message));
         res.setHeader('X-Disk-Cache', 'MISS');
+        res.setHeader('Cache-Control', withTimeLeft(cacheControl, sMaxAge, cap));
       }
       return send(body);
     };
