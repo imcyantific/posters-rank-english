@@ -156,28 +156,77 @@ function roundedTopRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Blur the pixels ALREADY on the canvas under the pill (downscale -> upscale).
-function blurRegion(srcCanvas, L, x, y, w, h, pad = 40, shrink = 10) {
+// Frosted glass, for the pill and the ratings badge: the picture ALREADY on the canvas
+// behind it, properly blurred (a real soft blur, slightly more colourful, like frosted
+// glass in phone apps), under a dark tint that gets stronger over bright pictures so
+// white text stays readable, with a soft shadow, a sheen and a light rim.
+// path(inset) must trace the shape, shrunk by `inset` on its visible edges.
+function drawFrost(ctx, L, x, y, w, h, path, blur = 16) {
   const S = L.S || 1;
-  const sx = Math.max(0, x - pad);
-  const sy = Math.max(0, y - pad);
-  const sw = Math.min(L.W - sx, w + pad * 2);
-  const sh = Math.min(L.H - sy, h + pad * 2);
-  const pw = Math.max(1, Math.round(sw * S));
-  const ph = Math.max(1, Math.round(sh * S));
+  const pad = blur * 2;
+  const sx = Math.max(0, x - pad), sy = Math.max(0, y - pad);
+  const sw = Math.min(L.W, x + w + pad) - sx, sh = Math.min(L.H, y + h + pad) - sy;
+  const pw = Math.max(1, Math.round(sw * S)), ph = Math.max(1, Math.round(sh * S));
+  const m = Math.ceil(blur * S * 2);   // margin, so the blur has something to pull in at the picture's border
 
-  const small = createCanvas(Math.max(1, Math.round(pw / (shrink * S))), Math.max(1, Math.round(ph / (shrink * S))));
-  const sctx = small.getContext('2d');
-  sctx.imageSmoothingEnabled = true;
-  sctx.imageSmoothingQuality = 'high';
-  sctx.drawImage(srcCanvas, sx * S, sy * S, sw * S, sh * S, 0, 0, small.width, small.height);
+  // The piece of the picture, with its border pixels stretched into the margin
+  // (otherwise the blur fades to nothing where the pill touches the edge).
+  const src = createCanvas(pw + 2 * m, ph + 2 * m);
+  const sctx = src.getContext('2d');
+  const piece = [ctx.canvas, Math.round(sx * S), Math.round(sy * S), pw, ph];
+  sctx.drawImage(...piece, 0, 0, pw + 2 * m, ph + 2 * m);               // rough fill for the corners
+  sctx.drawImage(...piece, m, m, pw, ph);
+  sctx.drawImage(src, m, m, pw, 1, m, 0, pw, m);                        // top
+  sctx.drawImage(src, m, m + ph - 1, pw, 1, m, m + ph, pw, m);          // bottom
+  sctx.drawImage(src, m, m, 1, ph, 0, m, m, ph);                        // left
+  sctx.drawImage(src, m + pw - 1, m, 1, ph, m + pw, m, m, ph);          // right
 
-  const big = createCanvas(pw, ph);
-  const bctx = big.getContext('2d');
-  bctx.imageSmoothingEnabled = true;
-  bctx.imageSmoothingQuality = 'high';
-  bctx.drawImage(small, 0, 0, pw, ph);
-  return { canvas: big, sx, sy, sw, sh };
+  const soft = createCanvas(pw + 2 * m, ph + 2 * m);
+  const fctx = soft.getContext('2d');
+  fctx.filter = `blur(${(blur * S).toFixed(1)}px) saturate(1.35)`;
+  fctx.drawImage(src, 0, 0);
+
+  // How bright the glass is (0-1), measured on the blurred pixels under the shape.
+  const px = fctx.getImageData(m + Math.round((x - sx) * S), m + Math.round((y - sy) * S),
+    Math.max(1, Math.round(w * S)), Math.max(1, Math.round(h * S))).data;
+  let sum = 0, n = 0;
+  for (let i = 0; i < px.length; i += 4 * 9) { sum += 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]; n++; }
+  const light = n ? sum / n / 255 : 0;
+
+  // soft shadow, so the glass lifts off the picture
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  path(0);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  path(0);
+  ctx.clip();
+  ctx.drawImage(soft, m, m, pw, ph, sx, sy, sw, sh);
+  const tint = 0.3 + 0.4 * Math.min(1, Math.max(0, (light - 0.3) / 0.4));
+  ctx.fillStyle = `rgba(18, 18, 22, ${tint.toFixed(3)})`;
+  ctx.fillRect(x, y, w, h);
+  const sheen = ctx.createLinearGradient(0, y, 0, y + h);
+  sheen.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
+  sheen.addColorStop(0.5, 'rgba(255, 255, 255, 0.07)');
+  sheen.addColorStop(1, 'rgba(255, 255, 255, 0.03)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+
+  // rim: brighter where the light hits (top), fainter below
+  const rim = ctx.createLinearGradient(0, y, 0, y + h);
+  rim.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
+  rim.addColorStop(1, 'rgba(255, 255, 255, 0.2)');
+  ctx.save();
+  ctx.strokeStyle = rim;
+  ctx.lineWidth = 1.5;
+  path(0.75);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // "Liquid glass" background for the pill: the picture behind it, lightly blurred and
@@ -379,29 +428,8 @@ function drawTagPill(ctx, text, L, position = 'bottom', pillColor = null) {
     const glassLight = drawLiquidGlass(ctx, L, x, y, pillW, pillH, r, atTop);
     drawGlassShine(ctx, x, y, pillW, pillH, r, atTop, shape, glassLight);
   } else {
-  // 1. Real blur of the image behind the pill
-  const { canvas: blurred, sx, sy, sw, sh } = blurRegion(ctx.canvas, L, x, y, pillW, pillH);
-  ctx.save();
-  shape(ctx, x, y, pillW, pillH, r);
-  ctx.clip();
-  ctx.drawImage(blurred, sx, sy, sw, sh);
-
-  // 2. Glass tint + sheen
-  ctx.fillStyle = 'rgba(20, 20, 24, 0.38)';
-  ctx.fillRect(x, y, pillW, pillH);
-  const sheen = ctx.createLinearGradient(0, y, 0, y + pillH);
-  sheen.addColorStop(0, 'rgba(255, 255, 255, 0.20)');
-  sheen.addColorStop(1, 'rgba(255, 255, 255, 0.06)');
-  ctx.fillStyle = sheen;
-  ctx.fillRect(x, y, pillW, pillH);
-  ctx.restore();
-
-  // 3. Rim
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-  ctx.lineWidth = 1.5;
-  if (atTop) shape(ctx, x + 0.75, y - 0.75, pillW - 1.5, pillH, r);
-  else shape(ctx, x + 0.75, y + 0.75, pillW - 1.5, pillH, r);
-  ctx.stroke();
+    drawFrost(ctx, L, x, y, pillW, pillH,
+      i => (atTop ? shape(ctx, x + i, y - i, pillW - 2 * i, pillH, r) : shape(ctx, x + i, y + i, pillW - 2 * i, pillH, r)));
   }
 
   // 4. Text
@@ -655,6 +683,21 @@ function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
   ctx.drawImage(logoImg, (L.W - w) / 2, bottom - h, w, h);
 }
 
+function drawTopFade(ctx, L) {
+  const S = L.S || 1;
+  const fadeH = L.pillH * 2.6;
+  const px = ctx.getImageData(0, 0, Math.round(L.W * S), Math.round(fadeH * 0.6 * S)).data;
+  let sum = 0, n = 0;
+  for (let i = 0; i < px.length; i += 4 * 11) { sum += 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]; n++; }
+  const bright = Math.min(1, Math.max(0, ((n ? sum / n / 255 : 0) - 0.25) / 0.4));
+  const grad = ctx.createLinearGradient(0, 0, 0, fadeH);
+  grad.addColorStop(0, `rgba(0, 0, 0, ${(0.4 + 0.35 * bright).toFixed(3)})`);
+  grad.addColorStop(0.5, `rgba(0, 0, 0, ${(0.18 + 0.2 * bright).toFixed(3)})`);
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, L.W, fadeH);
+}
+
 // Scores badge in the top-right corner: [IMDb] 7.5  [TMDB] 7.4 ... on a dark rounded
 // badge, level with the provider icon in the top-left. The badge keeps it readable on
 // bright artwork (there's no dark fade at the top).
@@ -674,6 +717,12 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
     drawGlassShine(ctx, x, y, w, h, h * 0.3, false, roundedRectPath, light, true);
     ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'; // clear glass shows the picture, so shade the text
     ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 1;
+  } else if (PILL_STYLE() === 'frosted') {
+    // Same frosted glass as the pill.
+    drawFrost(ctx, L, x, y, w, h, i => roundedRectPath(ctx, x + i, y + i, w - 2 * i, h - 2 * i, h * 0.3), 10);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    ctx.shadowBlur = 4;
     ctx.shadowOffsetY = 1;
   } else {
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
@@ -723,6 +772,12 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColo
   const aboveChip = hasMeta ? L.metaChipH + L.metaGap : 0;
   if (logoImg) drawLogo(ctx, logoImg, L, pillBottom, aboveChip + (pillBottom ? 0 : L.metaGap));
   if (hasMeta) drawMetaChip(ctx, L, info, chipBottom);
+
+  // A colour pill at the top takes its colour from the artwork around it, so on a pale
+  // picture it could melt into the background. A soft dark fade behind it (stronger the
+  // brighter the picture is up there) makes it stand out; it also helps the icon and
+  // the ratings badge next to it.
+  if (pillTop && pillColor) drawTopFade(ctx, L);
 
   // Only portrait posters are narrow enough for a 2-digit rank to hit a top pill,
   // and only the rank (with the icon under it) needs to move.

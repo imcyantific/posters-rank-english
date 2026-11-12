@@ -133,7 +133,7 @@ there ignore the `.env` values for those.
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
 | `PILL_SIZE` | `0.8` | Pill size: `1` = big (old size), `0.7` = smaller. Range 0.5–1.5 |
-| `PILL_STYLE` | `frosted` | `glass`: "liquid glass" pill, clear glass that bends the picture at its edges, with a bright rim. `color`: a solid tab in a colour picked from the artwork, with dark or white text. `frosted`: blurred, tinted glass |
+| `PILL_STYLE` | `frosted` | `glass`: "liquid glass" pill, clear glass that bends the picture at its edges, with a bright rim. `color`: a solid tab in a colour picked from the artwork, with dark or white text. (at the top it gets a soft dark fade behind it, so it stands out on pale artwork) `frosted`: blurred, tinted glass |
 | `POSTER_INFO` | `on` | `off` hides the provider icon **and** genre/rating |
 | `POSTER_SKIP` | *(empty)* | TMDB images to never use, comma-separated, e.g. `/b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg` (also accepts the full image link). Clear the image cache after changing it |
 | `POSTER_META` | `on` | `off` hides only the genre/rating line (provider icon stays) |
@@ -141,7 +141,7 @@ there ignore the `.env` values for those.
 | `RATINGS` | `imdb,tmdb,rt` | Which scores to show, always in the order IMDb, TMDB, Rotten Tomatoes. A title without a score just leaves it out |
 | `MDBLIST_API_KEY` | *(none)* | Free key from [mdblist.com/preferences](https://mdblist.com/preferences/) (API Key). Needed for the IMDb and Rotten Tomatoes scores; without it only TMDB shows. Free plan: about 1000 lookups a day |
 | `RATINGS_CACHE_DAYS` | `3` | How long each title's IMDb/RT scores are kept before asking MDBList again (saved in `CACHE_DIR/ratings.json`) |
-| `RATING_POSITION` | `bottom` | `top-right`: the scores go in a small badge in the top-right corner instead of the line under the logo (dark, or liquid glass when `PILL_STYLE=glass`) (note: Nuvio draws its "watched" tick in that corner) |
+| `RATING_POSITION` | `bottom` | `top-right`: the scores go in a small badge in the top-right corner instead of the line under the logo (it follows `PILL_STYLE`: frosted glass, liquid glass, or a dark badge with the colour pill) (note: Nuvio draws its "watched" tick in that corner) |
 | `META_CHIP` | `off` | `on` puts the genre/rating on a dark rounded background |
 | `PROVIDER_REGION` | `NZ` | Whose streaming services to show (`US`, `AU` …). Falls back to US, then any country |
 
