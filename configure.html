@@ -185,8 +185,8 @@
     'g-art': [
       { name: 'posterStyle', label: 'Poster artwork', type: 'seg', choices: [['always', 'Clean art + logo'], ['logo', 'Only on Top 10'], ['original', 'Original posters']],
         help: 'Clean art = TMDB poster without text, with the title logo drawn on.' },
-      { name: 'catalogArt', label: 'Top 10 rows', type: 'seg', choices: [['plain', 'Plain TMDB art'], ['poster', 'Ranked posters'], ['ranked', 'Ranked posters + landscape']],
-        help: '“Ranked” bakes the rank into the row’s own art (use Poster art → Original in Xperience). “+ landscape” also changes the hero banner.' },
+      { name: 'catalogArt', label: 'Top 10 rows', type: 'seg', choices: [['plain', 'Plain TMDB art'], ['poster', 'Ranked posters'], ['ranked', 'Ranked posters + landscape'], ['nologo', 'Ranked, landscape without logo']],
+        help: '“Ranked” bakes the rank into the row’s own art (use Poster art → Original in Xperience). “+ landscape” also changes the hero banner. “Landscape without logo” is for apps that add their own title logo to landscape cards, so the title shows only once.' },
       { name: 'digitalOnly', label: 'Skip movies only in cinemas', type: 'toggle',
         help: 'The movie Top 10 leaves out films with no digital release yet. Shows aren’t affected.' },
       { name: 'heroLogo', label: 'Title logo for the hero banner', type: 'toggle',
