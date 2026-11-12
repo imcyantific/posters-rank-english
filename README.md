@@ -141,7 +141,7 @@ there ignore the `.env` values for those.
 | `RATINGS` | `imdb,tmdb,rt` | Which scores to show, always in the order IMDb, TMDB, Rotten Tomatoes. A title without a score just leaves it out |
 | `MDBLIST_API_KEY` | *(none)* | Free key from [mdblist.com/preferences](https://mdblist.com/preferences/) (API Key). Needed for the IMDb and Rotten Tomatoes scores; without it only TMDB shows. Free plan: about 1000 lookups a day |
 | `RATINGS_CACHE_DAYS` | `3` | How long each title's IMDb/RT scores are kept before asking MDBList again (saved in `CACHE_DIR/ratings.json`) |
-| `RATING_POSITION` | `bottom` | `top-right`: the scores go in a small dark badge in the top-right corner instead of the line under the logo (note: Nuvio draws its "watched" tick in that corner) |
+| `RATING_POSITION` | `bottom` | `top-right`: the scores go in a small badge in the top-right corner instead of the line under the logo (dark, or liquid glass when `PILL_STYLE=glass`) (note: Nuvio draws its "watched" tick in that corner) |
 | `META_CHIP` | `off` | `on` puts the genre/rating on a dark rounded background |
 | `PROVIDER_REGION` | `NZ` | Whose streaming services to show (`US`, `AU` …). Falls back to US, then any country |
 
