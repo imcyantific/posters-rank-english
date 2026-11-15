@@ -128,7 +128,7 @@ there ignore the `.env` values for those.
 ### Poster look
 | Variable | Default | Options |
 |---|---|---|
-| `RANK_STYLE` | `pill` | `pill`: Top 10 rank shown in the pill as **Top 1 Today** (no side number) · `hash`: the same, written **#1 Today** · `number`: big rank number on the side + normal status pill · `badge`: red **TOP 1** badge in the top-left corner + normal status pill; the streaming icon moves to the top-right |
+| `RANK_STYLE` | `pill` | `pill`: Top 10 rank shown in the pill as **Top 1 Today** (no side number) · `hash`: the same, written **#1 Today** · `number`: big rank number on the side + normal status pill · `badge`: red **TOP 1** badge in the top-left corner + normal status pill; the streaming icon moves to the top-right, or under the red badge when `RATING_POSITION=top-right` (titles with no rank keep the icon top-left) |
 | `POSTER_STYLE` | `always` | `always`: textless poster + drawn title logo on every poster (if TMDB has no textless poster, the normal one is used; the genre/rating line is still drawn) · `logo`: only on ranked Top 10 posters · `original`: never, always the normal poster |
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |

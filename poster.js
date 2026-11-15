@@ -551,11 +551,14 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 // right = the Top 10 badge has the top-left corner, so the icon goes top-right.
 // The icon is drawn the same size everywhere (a little bigger than the layout's base size).
 const BADGE_ICON_SCALE = 1.15;
-function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0, right = false) {
+// underBadge = the scores have the top-right corner to themselves, so the icon sits
+// right under the Top 10 badge instead (same left edge as the badge).
+function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0, right = false, underBadge = false) {
   if (!img) return;
   const s = Math.round(L.providerSize * BADGE_ICON_SCALE);
-  const x = right ? L.W - (L.rankX + 10) - s : L.rankX + 10;
-  const y = (hasRank ? L.providerTopRanked : L.providerTop) + offsetY;
+  const x = right && !underBadge ? L.W - (L.rankX + 10) - s : L.rankX + 10;
+  const y = (underBadge ? L.providerTop + rankBadgeBox(L).h + 8
+    : hasRank ? L.providerTopRanked : L.providerTop) + offsetY;
   ctx.save();
   ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
   ctx.shadowBlur = 10;
@@ -756,9 +759,9 @@ function drawTopFade(ctx, L) {
 // Scores badge in the top-right corner: [IMDb] 7.5  [TMDB] 7.4 ... on a dark rounded
 // badge, level with the provider icon in the top-left. The badge keeps it readable on
 // bright artwork (there's no dark fade at the top).
-// underIcon = the provider icon is in the top-right corner (Top 10 badge style), so the
-// scores go right under it.
-function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
+// (In the Top 10 badge style the icon moves under the red badge, so the scores always have
+// this corner to themselves.)
+function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
   const iconS = Math.round(L.providerSize * BADGE_ICON_SCALE);
   const h = Math.round(L.providerSize * 0.8);
   const f = Math.round(h * 0.5);
@@ -767,7 +770,7 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
   ctx.font = `600 ${f}px "Inter"`;
   const w = padX + scoresRow(ctx, ratings, f, 0, 0, null) + padX;
   const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
-  const y = (underIcon ? L.providerTop + iconS + 8 : L.providerTop + (iconS - h) / 2) + offsetY;
+  const y = L.providerTop + (iconS - h) / 2 + offsetY;
   const glass = PILL_STYLE() === 'glass';
   if (!opt('ratingBg')) {
     // RATING_BG=off: no badge behind the scores, just a dark shadow to keep them readable.
@@ -842,7 +845,8 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
 //                                (replacing the status text) and no big number is drawn.
 //             number         -> big rank number on the side + the normal status pill.
 //             badge          -> red "TOP 1" badge in the top-left corner + the normal
-//                                status pill; the provider icon moves to the top-right.
+//                                status pill; the provider icon moves to the top-right,
+//                                or under the badge when the scores are top-right.
 const RANK_STYLE = () => opt('rankStyle');
 
 function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColor }) {
@@ -885,10 +889,14 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColo
   }
   // PILL_STYLE=red: every pill is the same red as the TOP badge.
   if (PILL_STYLE() === 'red') pillColor = { fill: BADGE_RED, text: 'rgba(255, 255, 255, 0.97)', dark: true };
-  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, !!badgeRank);
+  // Top 10 badge style: the icon normally goes top-right, opposite the badge. When the
+  // scores are in the top-right corner too, the icon goes under the badge instead, so
+  // the scores have that corner to themselves.
+  const iconUnderBadge = !!(badgeRank && topRating);
+  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, !!badgeRank, iconUnderBadge);
   if (rank) drawRank(ctx, rank, L, topOffset);
   if (badgeRank) drawRankBadge(ctx, badgeRank, L, topOffset);
-  if (topRating) drawRatingBadge(ctx, L, topRating, ratingOffset, !!(badgeRank && info?.providerImg));
+  if (topRating) drawRatingBadge(ctx, L, topRating, ratingOffset);
   if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom', pillColor);   // last, so it blurs the finished image
 }
 
