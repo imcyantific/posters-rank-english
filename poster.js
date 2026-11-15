@@ -549,15 +549,18 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 // Streaming provider icon in the top-left: under the rank number when there is one,
 // otherwise in the corner. (The top-right is left free for the app's "watched" tick.)
 // right = the Top 10 badge has the top-left corner, so the icon goes top-right.
-// The icon is drawn the same size everywhere (a little bigger than the layout's base size).
-const BADGE_ICON_SCALE = 1.15;
+// The icon is drawn the same size everywhere (the layout's base size), clearly smaller
+// than the red Top 10 badge so the two don't look like a pair of equal squares.
+const BADGE_ICON_SCALE = 1;
 // underBadge = the scores have the top-right corner to themselves, so the icon sits
-// right under the Top 10 badge instead (same left edge as the badge).
+// right under the Top 10 badge instead, centred on the badge.
 function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0, right = false, underBadge = false) {
   if (!img) return;
   const s = Math.round(L.providerSize * BADGE_ICON_SCALE);
-  const x = right && !underBadge ? L.W - (L.rankX + 10) - s : L.rankX + 10;
-  const y = (underBadge ? L.providerTop + rankBadgeBox(L).h + 8
+  const badge = rankBadgeBox(L);
+  const x = underBadge ? Math.round(badge.x + (badge.w - s) / 2)
+    : right ? L.W - (L.rankX + 10) - s : L.rankX + 10;
+  const y = (underBadge ? L.providerTop + badge.h + 8
     : hasRank ? L.providerTopRanked : L.providerTop) + offsetY;
   ctx.save();
   ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
@@ -641,8 +644,9 @@ function drawMetaChip(ctx, L, info, bottomY) {
 // the rank number, like the Top 10 badge on streaming apps. A bit bigger than the
 // provider icon, which moves to the top-right corner.
 const BADGE_RED = '#c81e24';
+const RANK_BADGE_SCALE = 1.15; // the badge keeps its size when the icon size changes
 function rankBadgeBox(L) {
-  const icon = L.providerSize * BADGE_ICON_SCALE;
+  const icon = L.providerSize * RANK_BADGE_SCALE;
   return { x: L.rankX + 10, y: L.providerTop, w: Math.round(icon * 1.2), h: Math.round(icon * 1.32) };
 }
 
