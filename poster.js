@@ -548,12 +548,12 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 
 // Streaming provider icon in the top-left: under the rank number when there is one,
 // otherwise in the corner. (The top-right is left free for the app's "watched" tick.)
-// right = the Top 10 badge has the top-left corner, so the icon goes top-right, a
-// little bigger.
+// right = the Top 10 badge has the top-left corner, so the icon goes top-right.
+// The icon is drawn the same size everywhere (a little bigger than the layout's base size).
 const BADGE_ICON_SCALE = 1.15;
 function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0, right = false) {
   if (!img) return;
-  const s = right ? Math.round(L.providerSize * BADGE_ICON_SCALE) : L.providerSize;
+  const s = Math.round(L.providerSize * BADGE_ICON_SCALE);
   const x = right ? L.W - (L.rankX + 10) - s : L.rankX + 10;
   const y = (hasRank ? L.providerTopRanked : L.providerTop) + offsetY;
   ctx.save();
@@ -767,7 +767,7 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
   ctx.font = `600 ${f}px "Inter"`;
   const w = padX + scoresRow(ctx, ratings, f, 0, 0, null) + padX;
   const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
-  const y = (underIcon ? L.providerTop + iconS + 8 : L.providerTop + (L.providerSize - h) / 2) + offsetY;
+  const y = (underIcon ? L.providerTop + iconS + 8 : L.providerTop + (iconS - h) / 2) + offsetY;
   const glass = PILL_STYLE() === 'glass';
   if (!opt('ratingBg')) {
     // RATING_BG=off: no badge behind the scores, just a dark shadow to keep them readable.
