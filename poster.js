@@ -883,6 +883,8 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColo
     // BADGE_PILL=on: the pill of a Top 10 title is the same red as the badge.
     if (opt('badgePill')) pillColor = { fill: BADGE_RED, text: 'rgba(255, 255, 255, 0.97)', dark: true };
   }
+  // PILL_STYLE=red: every pill is the same red as the TOP badge.
+  if (PILL_STYLE() === 'red') pillColor = { fill: BADGE_RED, text: 'rgba(255, 255, 255, 0.97)', dark: true };
   if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, !!badgeRank);
   if (rank) drawRank(ctx, rank, L, topOffset);
   if (badgeRank) drawRankBadge(ctx, badgeRank, L, topOffset);
