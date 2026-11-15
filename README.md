@@ -119,7 +119,7 @@ there ignore the `.env` values for those.
 ### Catalog
 | Variable | Default | Options |
 |---|---|---|
-| `CATALOG_ART` | `plain` | `plain`: normal TMDB poster + backdrop · `poster`: rank baked into the poster, backdrop stays clean for the hero banner · `ranked`: rank baked into both poster and backdrop · `nologo`: like `ranked`, but the landscape art has no title logo drawn in (for apps that add their own logo to landscape cards, e.g. Xperience with Poster art = Original) |
+| `CATALOG_ART` | `plain` | `plain`: normal TMDB poster + backdrop · `poster`: rank baked into the poster, backdrop stays clean for the hero banner · `ranked`: rank baked into both poster and backdrop · `nologo`: like `ranked`, but the landscape art has no title logo drawn in (for apps that add their own logo to landscape cards, e.g. Xperience with Poster art = Original) · `cards`: ranked poster plus ranked landscape art in a separate `landscapePoster` field that Nuvio uses for landscape cards, while the backdrop stays plain and the logo is sent, so the hero banner is clean (for the addon installed straight into Nuvio) |
 | `META_LOGO` | `on` | `off` stops sending the title logo for the hero banner (never sent with `CATALOG_ART=ranked`, whose landscape art already has the logo) |
 | `RANK_TZ` | `Pacific/Auckland` | Time zone whose midnight starts a new Top 10 day |
 | `DIGITAL_ONLY` | `off` | `on` = movie Top 10 skips titles that are only in cinemas (no digital release yet). Shows aren't affected. Also on `/configure` ("Skip movies only in cinemas"). Each setting keeps its own daily list, so a change takes effect straight away |

@@ -50,6 +50,7 @@ The same `index.js` runs in both, and code must work in each:
 **Catalog metas (`buildMeta` in `index.js`).** `CATALOG_ART` decides whether poster/background are plain TMDB images or the addon's rendered art. Two behaviours exist because of how client apps work:
 
 - `meta.logo` is not sent when the background is rendered art (it already contains the logo, and Nuvio overlays `meta.logo` on landscape cards).
+- `CATALOG_ART=cards` also sends `meta.landscapePoster` (rendered landscape art). Nuvio shows that field on landscape cards without adding its own logo, and keeps using the plain `background` + `logo` for the hero banner.
 - `meta.id` is the IMDb id only when Cinemeta has a named record for it (`cinemetaKnows`); otherwise `tmdb:<id>`, because apps fail to open titles Cinemeta only half knows. `imdb_id` and `moviedb_id` are always sent so apps can fill Custom URL placeholders.
 
 **Other modules.** `tags.js` decides the pill text from TMDB details (falls back to "Now Streaming"). `ratings.js` fetches IMDb/RT scores from MDBList with a per-title cache and a pause when the daily limit is hit. `/warm` pre-renders every Top 10 image, including the `WARM_CUSTOM_URL` variants.

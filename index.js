@@ -70,7 +70,13 @@ const USE_IMDB_IDS = true;
 //                       image link, so the numbers always match the row order, and the
 //                       title shows only once.
 // (These and the poster options below can also be chosen per install on /configure.)
-const RANKED_POSTER = () => ['ranked', 'poster', 'nologo'].includes(opt('catalogArt'));
+//   cards            -> ranked art in the poster AND in a separate "landscapePoster" field,
+//                       which Nuvio uses for landscape cards (and then adds no logo of its
+//                       own). The background stays the plain TMDB backdrop and the title
+//                       logo is sent, so the hero banner is clean. Best when the addon is
+//                       installed straight into Nuvio.
+const RANKED_POSTER = () => ['ranked', 'poster', 'nologo', 'cards'].includes(opt('catalogArt'));
+const LANDSCAPE_CARD = () => opt('catalogArt') === 'cards';
 const RANKED_BACKGROUND = () => ['ranked', 'nologo'].includes(opt('catalogArt'));
 const NO_LOGO_BACKGROUND = () => opt('catalogArt') === 'nologo';
 
@@ -369,6 +375,9 @@ async function buildMeta(item, index, type, tmdbType) {
   // Plain mode: clean TMDB backdrop, so hero banners look clean and Xperience can override it.
   if (RANKED_BACKGROUND()) meta.background = `${HOST_URL}${prefix()}/render-backdrop?${query}${NO_LOGO_BACKGROUND() ? '&logo=0' : ''}`;
   else if (details.backdrop_path) meta.background = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
+  // Nuvio shows "landscapePoster" on landscape cards instead of the background, without
+  // laying its own logo on top; the hero banner keeps using the plain background + logo.
+  if (LANDSCAPE_CARD()) meta.landscapePoster = `${HOST_URL}${prefix()}/render-backdrop?${query}`;
   // TMDB title logo for the hero banner. Not sent when the background is our ranked art:
   // that already has the logo drawn in, and apps like Nuvio lay meta.logo on top of the
   // background in landscape rows, so the title would show twice. (The "nologo" art has
@@ -684,7 +693,7 @@ app.get('/warm', async (req, res) => {
 
     const urls = new Set();
     for (const m of metas) {
-      for (const u of [m.poster, m.background]) {
+      for (const u of [m.poster, m.background, m.landscapePoster]) {
         if (u && u.startsWith(HOST_URL)) urls.add(u);
       }
       const template = process.env.WARM_CUSTOM_URL;
