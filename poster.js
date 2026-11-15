@@ -762,14 +762,38 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
   const iconS = Math.round(L.providerSize * BADGE_ICON_SCALE);
   const h = Math.round(L.providerSize * 0.8);
   const f = Math.round(h * 0.5);
-  const padX = h * 0.28;
+  const padX = opt('ratingBg') ? h * 0.28 : 0;      // no badge: the text itself lines up with the edge
   ctx.save();
   ctx.font = `600 ${f}px "Inter"`;
   const w = padX + scoresRow(ctx, ratings, f, 0, 0, null) + padX;
   const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
   const y = (underIcon ? L.providerTop + iconS + 8 : L.providerTop + (L.providerSize - h) / 2) + offsetY;
   const glass = PILL_STYLE() === 'glass';
-  if (glass) {
+  if (!opt('ratingBg')) {
+    // RATING_BG=off: no badge behind the scores, just a dark shadow to keep them readable.
+    // The row is drawn on its own layer first and the shadow added once for the whole
+    // row; shadowing each letter and logo piece separately smears them into each other.
+    const S = L.S || 1;
+    const layer = createCanvas(Math.ceil(w * S) + 2, Math.ceil(h * S));
+    const lctx = layer.getContext('2d');
+    lctx.scale(S, S);
+    lctx.font = ctx.font;
+    lctx.fillStyle = '#ffffff';
+    lctx.strokeStyle = '#ffffff';
+    lctx.lineWidth = 0.8;
+    lctx.textAlign = 'left';
+    lctx.textBaseline = 'middle';
+    scoresRow(lctx, ratings, f, 0, h / 2 + 1, (t, tx) => {
+      lctx.fillText(t, tx, h / 2 + 1);
+      lctx.strokeText(t, tx, h / 2 + 1);
+    });
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 2;
+    for (let i = 0; i < 2; i++) ctx.drawImage(layer, x, y, layer.width / S, layer.height / S); // twice = a denser shadow
+    ctx.restore();
+    return;
+  } else if (glass) {
     // Same liquid glass as the pill, so the two match.
     const light = drawLiquidGlass(ctx, L, x, y, w, h, h * 0.3, false, true);
     drawGlassShine(ctx, x, y, w, h, h * 0.3, false, roundedRectPath, light, true);
@@ -801,7 +825,10 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
   ctx.textBaseline = 'middle';
   scoresRow(ctx, ratings, f, x + padX, y + h / 2 + 1, (t, tx) => {
     ctx.fillText(t, tx, y + h / 2 + 1);
+    const shadow = ctx.shadowColor;
+    ctx.shadowColor = 'transparent'; // shadow only once, from the fill (a second one greys the text)
     ctx.strokeText(t, tx, y + h / 2 + 1);
+    ctx.shadowColor = shadow;
   });
   ctx.restore();
 }
@@ -1005,12 +1032,9 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
       loadProviderIcon(info?.providerLogoPath)
     ]);
     // No logo of our own means the poster has its title printed in it (no textless art on
-    // TMDB); the genre/scores line would sit on top of that title, so leave it out.
-    // Scores in the top-right badge are nowhere near the title, so those stay.
-    const ownTitle = logoPaths.length > 0;
-    const infoForDraw = info
-      ? { genre: ownTitle ? info.genre : null, ratings: ownTitle || RATING_TOP() ? info.ratings : [], providerImg }
-      : null;
+    // TMDB). The genre/scores line is still drawn where the settings put it (just above
+    // the pill, or in the top-right corner), so every poster in a row looks the same.
+    const infoForDraw = info ? { genre: info.genre, ratings: info.ratings || [], providerImg } : null;
     return await toJpeg(composePoster(posterImg, rank, tag, logoImg, infoForDraw));
   } catch (err) {
     console.error('Error generating poster:', err.message);

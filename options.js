@@ -38,6 +38,8 @@ const SCHEMA = {
   showGenre:     { key: 'ge', env: 'POSTER_GENRE', def: true, parse: v => onOff(v, true) },
   ratingPos:     { key: 'rp', env: 'RATING_POSITION', def: 'bottom',
                    parse: v => (['top-right', 'top', 'topright'].includes(String(v ?? '').toLowerCase()) ? 'top-right' : 'bottom') },
+  // Badge behind the scores when they are in the top-right corner (off = plain text + shadow).
+  ratingBg:      { key: 'rb', env: 'RATING_BG', def: true, parse: v => onOff(v, true) },
   // Which scores go in the rating line, e.g. "imdb,tmdb,rt" (always drawn in that order).
   // IMDb and Rotten Tomatoes need MDBLIST_API_KEY on the server (see ratings.js).
   ratings:       { key: 'ra', env: 'RATINGS', def: 'imdb,tmdb,rt', parse: v => {

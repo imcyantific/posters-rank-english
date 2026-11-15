@@ -45,7 +45,7 @@ The same `index.js` runs in both, and code must work in each:
 - `/render-poster` and `/render-backdrop`: URLs the catalog itself emits. Rank, tag and `IMG_VERSION` are in the URL, so a URL's image never changes and is cached for a week.
 - `/top10/:shape/:id.jpg`: the Custom URL template that apps fill in (`{shape}`, `{imdb_id}`, `{tmdb_id}`, `{type}`). The server works out the rank and tag itself, so ranked responses are cached only until midnight. `resolveTitle` accepts IMDb ids, `tmdb:` ids and a `tmdb=` hint.
 
-**Rendering (`poster.js`).** `generatePoster` / `generateBackdrop` pick artwork, then `drawOverlays` draws the shared stack for both layouts in `LAYOUTS`. Artwork choice: prefer a textless ("No Language") image plus a drawn title logo; when there is no logo, use the image with its printed title and drop the genre/ratings line. Image ranking and filtering (`byBest`, `sharpFirst`, `rankLogos`, `POSTER_SKIP`) are in `tmdb.js`. The pill is drawn last because the frosted and glass styles read back the finished pixels.
+**Rendering (`poster.js`).** `generatePoster` / `generateBackdrop` pick artwork, then `drawOverlays` draws the shared stack for both layouts in `LAYOUTS`. Artwork choice: prefer a textless ("No Language") image plus a drawn title logo; when there is no logo, use the image with its printed title (the genre/ratings line is still drawn). Image ranking and filtering (`byBest`, `sharpFirst`, `rankLogos`, `POSTER_SKIP`) are in `tmdb.js`. The pill is drawn last because the frosted and glass styles read back the finished pixels.
 
 **Catalog metas (`buildMeta` in `index.js`).** `CATALOG_ART` decides whether poster/background are plain TMDB images or the addon's rendered art. Two behaviours exist because of how client apps work:
 

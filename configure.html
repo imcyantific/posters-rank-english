@@ -180,6 +180,8 @@
       { name: 'ratings', label: 'Which scores', type: 'multi', needs: 'showMeta', choices: [['imdb', 'IMDb'], ['tmdb', 'TMDB'], ['rt', 'Rotten Tomatoes']],
         help: DATA.ratingsKey ? 'A score is left out when a title doesn’t have one yet.' : 'IMDb and Rotten Tomatoes need MDBLIST_API_KEY on the server; until then only TMDB shows.' },
       { name: 'ratingPos', label: 'Rating position', type: 'seg', choices: [['bottom', 'Under the title'], ['top-right', 'Top-right badge']], needs: 'showMeta' },
+      { name: 'ratingBg', label: 'Background behind top-right ratings', type: 'toggle', needs: 'showMeta',
+        help: 'Off = just the scores with a shadow, no badge. Only matters with “Top-right badge”.' },
       { name: 'showGenre', label: 'Genre', type: 'toggle', needs: 'showMeta', help: 'e.g. “Drama” next to the ratings, under the title.' },
       { name: 'metaChip', label: 'Dark chip behind genre + ratings', type: 'toggle', needs: 'showMeta' },
       { name: 'region', label: 'Country', type: 'select', help: 'Whose streaming service icon to show.',
