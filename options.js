@@ -28,13 +28,18 @@ const SCHEMA = {
   pillPosition:  { key: 'pp', env: 'PILL_POSITION', def: 'bottom', parse: oneOf(['bottom', 'top'], 'bottom') },
   // 'same' = follow pillPosition
   landscapePill: { key: 'lp', env: 'LANDSCAPE_PILL_POSITION', def: 'same', parse: oneOf(['same', 'bottom', 'top'], 'same') },
-  // pill = "Top 1 Today" in the pill, hash = "#1 Today" in the pill, number = big number
-  rankStyle:     { key: 'rs', env: 'RANK_STYLE', def: 'pill', parse: oneOf(['pill', 'hash', 'number'], 'pill') },
+  // pill = "Top 1 Today" in the pill, hash = "#1 Today" in the pill, number = big number,
+  // badge = red "TOP 1" badge in the corner
+  rankStyle:     { key: 'rs', env: 'RANK_STYLE', def: 'pill', parse: oneOf(['pill', 'hash', 'number', 'badge'], 'pill') },
+  // Red pill (same red as the badge) on Top 10 titles when rankStyle is "badge".
+  badgePill:     { key: 'bp', env: 'BADGE_PILL', def: false, parse: v => onOff(v, false) },
   showInfo:      { key: 'in', env: 'POSTER_INFO', def: true, parse: v => onOff(v, true) },
   showMeta:      { key: 'me', env: 'POSTER_META', def: true, parse: v => onOff(v, true) },
   showGenre:     { key: 'ge', env: 'POSTER_GENRE', def: true, parse: v => onOff(v, true) },
   ratingPos:     { key: 'rp', env: 'RATING_POSITION', def: 'bottom',
                    parse: v => (['top-right', 'top', 'topright'].includes(String(v ?? '').toLowerCase()) ? 'top-right' : 'bottom') },
+  // Badge behind the scores when they are in the top-right corner (off = plain text + shadow).
+  ratingBg:      { key: 'rb', env: 'RATING_BG', def: true, parse: v => onOff(v, true) },
   // Which scores go in the rating line, e.g. "imdb,tmdb,rt" (always drawn in that order).
   // IMDb and Rotten Tomatoes need MDBLIST_API_KEY on the server (see ratings.js).
   ratings:       { key: 'ra', env: 'RATINGS', def: 'imdb,tmdb,rt', parse: v => {

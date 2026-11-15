@@ -169,7 +169,10 @@
       { name: 'pillSize', label: 'Size', type: 'range', min: 0.5, max: 1.5, step: 0.05 },
       { name: 'pillPosition', label: 'Position on posters', type: 'seg', choices: [['bottom', 'Bottom'], ['top', 'Top']] },
       { name: 'landscapePill', label: 'Position on landscape', type: 'seg', choices: [['same', 'Same as posters'], ['bottom', 'Bottom'], ['top', 'Top']] },
-      { name: 'rankStyle', label: 'Rank', type: 'seg', choices: [['pill', '“Top 1 Today”'], ['hash', '“#1 Today”'], ['number', 'Big number']] }
+      { name: 'rankStyle', label: 'Rank', type: 'seg', choices: [['pill', '“Top 1 Today”'], ['hash', '“#1 Today”'], ['number', 'Big number'], ['badge', 'Red TOP badge']],
+        help: 'Red TOP badge: a red badge in the top-left corner with the rank; the pill keeps its normal text (Now Streaming, Just Added…) and the streaming icon moves to the top-right.' },
+      { name: 'badgePill', label: 'Red pill on Top 10 titles', type: 'toggle',
+        help: 'Only with “Red TOP badge”: the pill of a Top 10 title is the same red as the badge.' }
     ],
     'g-info': [
       { name: 'showInfo', label: 'Streaming service icon + ratings', type: 'toggle', help: 'Netflix / Disney+ … icon and the scores.' },
@@ -177,6 +180,8 @@
       { name: 'ratings', label: 'Which scores', type: 'multi', needs: 'showMeta', choices: [['imdb', 'IMDb'], ['tmdb', 'TMDB'], ['rt', 'Rotten Tomatoes']],
         help: DATA.ratingsKey ? 'A score is left out when a title doesn’t have one yet.' : 'IMDb and Rotten Tomatoes need MDBLIST_API_KEY on the server; until then only TMDB shows.' },
       { name: 'ratingPos', label: 'Rating position', type: 'seg', choices: [['bottom', 'Under the title'], ['top-right', 'Top-right badge']], needs: 'showMeta' },
+      { name: 'ratingBg', label: 'Background behind top-right ratings', type: 'toggle', needs: 'showMeta',
+        help: 'Off = just the scores with a shadow, no badge. Only matters with “Top-right badge”.' },
       { name: 'showGenre', label: 'Genre', type: 'toggle', needs: 'showMeta', help: 'e.g. “Drama” next to the ratings, under the title.' },
       { name: 'metaChip', label: 'Dark chip behind genre + ratings', type: 'toggle', needs: 'showMeta' },
       { name: 'region', label: 'Country', type: 'select', help: 'Whose streaming service icon to show.',

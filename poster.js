@@ -399,17 +399,24 @@ function hslToRgb(h, s, l) {
 
 // The status tab at the bottom (or top) centre: frosted glass, liquid glass or a solid
 // colour (pillColor, see pillColorFor).
+// Where the pill sits sideways for a given text: { x, w }.
+function pillBox(ctx, L, text) {
+  ctx.save();
+  ctx.font = `600 ${L.pillFont}px "Inter"`;
+  const textW = ctx.measureText(String(text)).width;
+  ctx.restore();
+  const w = Math.min(L.W - 60, Math.max(textW + 72 * PILL_SIZE(), 230 * PILL_SIZE()));
+  return { x: Math.round((L.W - w) / 2), w };
+}
+
 function drawTagPill(ctx, text, L, position = 'bottom', pillColor = null) {
   if (!text) return;
   const label = String(text);
 
+  const { x, w: pillW } = pillBox(ctx, L, label);
   ctx.save();
   ctx.font = `600 ${L.pillFont}px "Inter"`;
-  const textW = ctx.measureText(label).width;
-
-  const pillW = Math.min(L.W - 60, Math.max(textW + 72 * PILL_SIZE(), 230 * PILL_SIZE()));
   const pillH = L.pillH;
-  const x = Math.round((L.W - pillW) / 2);
   const atTop = position === 'top';
   const y = atTop ? 0 : L.H - pillH;
   const r = L.pillR;
@@ -541,10 +548,13 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 
 // Streaming provider icon in the top-left: under the rank number when there is one,
 // otherwise in the corner. (The top-right is left free for the app's "watched" tick.)
-function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0) {
+// right = the Top 10 badge has the top-left corner, so the icon goes top-right.
+// The icon is drawn the same size everywhere (a little bigger than the layout's base size).
+const BADGE_ICON_SCALE = 1.15;
+function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0, right = false) {
   if (!img) return;
-  const s = L.providerSize;
-  const x = L.rankX + 10;
+  const s = Math.round(L.providerSize * BADGE_ICON_SCALE);
+  const x = right ? L.W - (L.rankX + 10) - s : L.rankX + 10;
   const y = (hasRank ? L.providerTopRanked : L.providerTop) + offsetY;
   ctx.save();
   ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
@@ -621,6 +631,51 @@ function drawMetaChip(ctx, L, info, bottomY) {
   if (genre) { boldText(genre, x); x += genreW; }
   if (dot) { boldText(dot, x, 'rgba(255, 255, 255, 0.7)'); x += dotW; }
   if (ratings.length) scoresRow(ctx, ratings, f, x, cy, (t, tx) => boldText(t, tx));
+  ctx.restore();
+}
+
+// RANK_STYLE=badge: a red rounded square in the top-left corner with a small "TOP" over
+// the rank number, like the Top 10 badge on streaming apps. A bit bigger than the
+// provider icon, which moves to the top-right corner.
+const BADGE_RED = '#c81e24';
+function rankBadgeBox(L) {
+  const icon = L.providerSize * BADGE_ICON_SCALE;
+  return { x: L.rankX + 10, y: L.providerTop, w: Math.round(icon * 1.2), h: Math.round(icon * 1.32) };
+}
+
+function drawRankBadge(ctx, rank, L, offsetY = 0) {
+  const { x, w, h } = rankBadgeBox(L);
+  const y = L.providerTop + offsetY;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 3;
+  const red = ctx.createLinearGradient(0, y, 0, y + h);
+  red.addColorStop(0, '#dc2626');
+  red.addColorStop(1, '#b3151b');
+  ctx.fillStyle = red;
+  roundedRectPath(ctx, x, y, w, h, w * 0.14);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `600 ${Math.round(w * 0.29)}px "Inter"`;
+  ctx.fillText('TOP', x + w / 2, y + h * 0.25);
+  // the number: as big as fits (a two-digit "10" is squeezed a little)
+  const label = String(rank);
+  let size = Math.round(w * 0.66);
+  ctx.font = `600 ${size}px "Inter"`;
+  const tw = ctx.measureText(label).width;
+  if (tw > w * 0.8) {
+    size = Math.floor(size * (w * 0.8) / tw);
+    ctx.font = `600 ${size}px "Inter"`;
+  }
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = size * 0.03; // a touch bolder than the font's own weight
+  ctx.fillText(label, x + w / 2, y + h * 0.65);
+  ctx.strokeText(label, x + w / 2, y + h * 0.65);
   ctx.restore();
 }
 
@@ -701,17 +756,44 @@ function drawTopFade(ctx, L) {
 // Scores badge in the top-right corner: [IMDb] 7.5  [TMDB] 7.4 ... on a dark rounded
 // badge, level with the provider icon in the top-left. The badge keeps it readable on
 // bright artwork (there's no dark fade at the top).
-function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
+// underIcon = the provider icon is in the top-right corner (Top 10 badge style), so the
+// scores go right under it.
+function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
+  const iconS = Math.round(L.providerSize * BADGE_ICON_SCALE);
   const h = Math.round(L.providerSize * 0.8);
   const f = Math.round(h * 0.5);
-  const padX = h * 0.28;
+  const padX = opt('ratingBg') ? h * 0.28 : 0;      // no badge: the text itself lines up with the edge
   ctx.save();
   ctx.font = `600 ${f}px "Inter"`;
   const w = padX + scoresRow(ctx, ratings, f, 0, 0, null) + padX;
   const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
-  const y = L.providerTop + (L.providerSize - h) / 2 + offsetY;
+  const y = (underIcon ? L.providerTop + iconS + 8 : L.providerTop + (iconS - h) / 2) + offsetY;
   const glass = PILL_STYLE() === 'glass';
-  if (glass) {
+  if (!opt('ratingBg')) {
+    // RATING_BG=off: no badge behind the scores, just a dark shadow to keep them readable.
+    // The row is drawn on its own layer first and the shadow added once for the whole
+    // row; shadowing each letter and logo piece separately smears them into each other.
+    const S = L.S || 1;
+    const layer = createCanvas(Math.ceil(w * S) + 2, Math.ceil(h * S));
+    const lctx = layer.getContext('2d');
+    lctx.scale(S, S);
+    lctx.font = ctx.font;
+    lctx.fillStyle = '#ffffff';
+    lctx.strokeStyle = '#ffffff';
+    lctx.lineWidth = 0.8;
+    lctx.textAlign = 'left';
+    lctx.textBaseline = 'middle';
+    scoresRow(lctx, ratings, f, 0, h / 2 + 1, (t, tx) => {
+      lctx.fillText(t, tx, h / 2 + 1);
+      lctx.strokeText(t, tx, h / 2 + 1);
+    });
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 2;
+    for (let i = 0; i < 2; i++) ctx.drawImage(layer, x, y, layer.width / S, layer.height / S); // twice = a denser shadow
+    ctx.restore();
+    return;
+  } else if (glass) {
     // Same liquid glass as the pill, so the two match.
     const light = drawLiquidGlass(ctx, L, x, y, w, h, h * 0.3, false, true);
     drawGlassShine(ctx, x, y, w, h, h * 0.3, false, roundedRectPath, light, true);
@@ -743,7 +825,10 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
   ctx.textBaseline = 'middle';
   scoresRow(ctx, ratings, f, x + padX, y + h / 2 + 1, (t, tx) => {
     ctx.fillText(t, tx, y + h / 2 + 1);
+    const shadow = ctx.shadowColor;
+    ctx.shadowColor = 'transparent'; // shadow only once, from the fill (a second one greys the text)
     ctx.strokeText(t, tx, y + h / 2 + 1);
+    ctx.shadowColor = shadow;
   });
   ctx.restore();
 }
@@ -756,10 +841,16 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
 //             hash           -> the same, written "#1 Today"
 //                                (replacing the status text) and no big number is drawn.
 //             number         -> big rank number on the side + the normal status pill.
+//             badge          -> red "TOP 1" badge in the top-left corner + the normal
+//                                status pill; the provider icon moves to the top-right.
 const RANK_STYLE = () => opt('rankStyle');
 
 function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColor }) {
-  if (rank && RANK_STYLE() !== 'number') {
+  let badgeRank = null;
+  if (rank && RANK_STYLE() === 'badge') {
+    badgeRank = rank; // red "TOP n" badge in the corner; the pill keeps its normal text
+    rank = null;
+  } else if (rank && RANK_STYLE() !== 'number') {
     tag = RANK_STYLE() === 'hash' ? `#${rank} Today` : `Top ${rank} Today`;
     rank = null; // no side number; the provider icon moves up into the corner
   }
@@ -781,10 +872,21 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColo
 
   // Only portrait posters are narrow enough for a 2-digit rank to hit a top pill,
   // and only the rank (with the icon under it) needs to move.
-  const topOffset = pillTop && L.shiftForTopPill && rank ? L.pillH + 4 : 0;
-  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset);
+  let topOffset = pillTop && L.shiftForTopPill && rank ? L.pillH + 4 : 0;
+  let ratingOffset = pillTop && L.shiftForTopPill ? L.pillH + 4 : 0;
+  if (badgeRank) {
+    // The badge (and the icon and scores opposite it) only move down when the top pill is
+    // wide enough to reach them; a short pill in the middle leaves them where they are.
+    const box = rankBadgeBox(L);
+    const reaches = pillTop && pillBox(ctx, L, tag).x < box.x + box.w + 8;
+    topOffset = ratingOffset = reaches ? L.pillH + 4 : 0;
+    // BADGE_PILL=on: the pill of a Top 10 title is the same red as the badge.
+    if (opt('badgePill')) pillColor = { fill: BADGE_RED, text: 'rgba(255, 255, 255, 0.97)', dark: true };
+  }
+  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, !!badgeRank);
   if (rank) drawRank(ctx, rank, L, topOffset);
-  if (topRating) drawRatingBadge(ctx, L, topRating, (pillTop && L.shiftForTopPill ? L.pillH + 4 : 0));
+  if (badgeRank) drawRankBadge(ctx, badgeRank, L, topOffset);
+  if (topRating) drawRatingBadge(ctx, L, topRating, ratingOffset, !!(badgeRank && info?.providerImg));
   if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom', pillColor);   // last, so it blurs the finished image
 }
 
@@ -930,12 +1032,9 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
       loadProviderIcon(info?.providerLogoPath)
     ]);
     // No logo of our own means the poster has its title printed in it (no textless art on
-    // TMDB); the genre/scores line would sit on top of that title, so leave it out.
-    // Scores in the top-right badge are nowhere near the title, so those stay.
-    const ownTitle = logoPaths.length > 0;
-    const infoForDraw = info
-      ? { genre: ownTitle ? info.genre : null, ratings: ownTitle || RATING_TOP() ? info.ratings : [], providerImg }
-      : null;
+    // TMDB). The genre/scores line is still drawn where the settings put it (just above
+    // the pill, or in the top-right corner), so every poster in a row looks the same.
+    const infoForDraw = info ? { genre: info.genre, ratings: info.ratings || [], providerImg } : null;
     return await toJpeg(composePoster(posterImg, rank, tag, logoImg, infoForDraw));
   } catch (err) {
     console.error('Error generating poster:', err.message);
