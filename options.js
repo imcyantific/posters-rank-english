@@ -23,7 +23,7 @@ const SCHEMA = {
   heroLogo:      { key: 'hl', env: 'META_LOGO', def: true, parse: v => onOff(v, true) },
   posterStyle:   { key: 'ps', env: 'POSTER_STYLE', def: 'always', parse: oneOf(['always', 'logo', 'original'], 'always') },
   // color = a solid tab in a colour taken from the artwork,
-  // red = red on Top 10 titles and frosted on the rest
+  // red = a solid red tab on every title (same red as the TOP badge)
   pillStyle:     { key: 'pl', env: 'PILL_STYLE', def: 'frosted', parse: oneOf(['frosted', 'glass', 'color', 'red'], 'frosted') },
   pillSize:      { key: 'pz', env: 'PILL_SIZE', def: 0.8, parse: v => Math.min(1.5, Math.max(0.5, Number(v) || 0.8)) },
   pillPosition:  { key: 'pp', env: 'PILL_POSITION', def: 'bottom', parse: oneOf(['bottom', 'top'], 'bottom') },
