@@ -26,7 +26,8 @@ LAYOUTS.backdrop.S = IMAGE_QUALITY === 'high' ? 2 : 4 / 3;
 //             bends the picture at its edges, with a bright rim); color = a solid tab in
 //             a colour taken from the artwork.
 const PILL_SIZE = () => opt('pillSize');
-const PILL_STYLE = () => opt('pillStyle');
+// "red" = red pill on Top 10 titles; every other title gets the frosted pill.
+const PILL_STYLE = () => (opt('pillStyle') === 'red' ? 'frosted' : opt('pillStyle'));
 // A layout with the pill scaled for the current options.
 function layoutFor(kind) {
   const L = { ...LAYOUTS[kind] };
@@ -846,6 +847,7 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
 const RANK_STYLE = () => opt('rankStyle');
 
 function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColor }) {
+  const ranked = !!rank;
   let badgeRank = null;
   if (rank && RANK_STYLE() === 'badge') {
     badgeRank = rank; // red "TOP n" badge in the corner; the pill keeps its normal text
@@ -883,6 +885,8 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColo
     // BADGE_PILL=on: the pill of a Top 10 title is the same red as the badge.
     if (opt('badgePill')) pillColor = { fill: BADGE_RED, text: 'rgba(255, 255, 255, 0.97)', dark: true };
   }
+  // PILL_STYLE=red: the pill of any Top 10 title is red, whatever the rank style.
+  if (ranked && opt('pillStyle') === 'red') pillColor = { fill: BADGE_RED, text: 'rgba(255, 255, 255, 0.97)', dark: true };
   if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, !!badgeRank);
   if (rank) drawRank(ctx, rank, L, topOffset);
   if (badgeRank) drawRankBadge(ctx, badgeRank, L, topOffset);
