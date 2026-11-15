@@ -20,8 +20,8 @@ reasoning behind each answer, and wants to be asked before anything is assumed.
 ## What was added this session
 - `CATALOG_ART=nologo`: ranked landscape art without the drawn logo (PR #43).
 - `CATALOG_ART=cards`: ranked art in `poster` and in a separate `landscapePoster` field,
-  plain `background` + `logo` for the hero (PR #48). Built from reading Nuvio's code;
-  NOT yet tested in Nuvio.
+  plain `background` + `logo` for the hero (PR #48). Owner confirmed it works in Nuvio:
+  ranked landscape cards and a clean hero banner. This is the setup to keep.
 - Disk cache fix (PR #45): saved pictures now report the time really left, each rank has
   its own saved copy, and nothing ranked is kept past midnight.
 - `RANK_STYLE=badge` (red "TOP n" badge, icon moves top-right, ratings under the icon),
@@ -31,8 +31,8 @@ reasoning behind each answer, and wants to be asked before anything is assumed.
 - Ratings line is now kept on posters with a printed title (owner's choice).
 
 ## Next steps
-1. Ask how `CATALOG_ART=cards` looks in Nuvio Mobile and Nuvio TV: landscape cards should
-   show the ranked art with one logo, the hero banner a clean backdrop + logo.
+1. With `CATALOG_ART=cards` installed straight into Nuvio, the Custom URL should be on
+   `ranks=none` (ranks are baked into the catalog art). Check the owner has switched it.
 2. Ask whether the rank pills now change only at midnight NZ (the PR #45 fix). If a number
    still moves mid-day, get the time and the title.
 3. Owner still to do in Cloudflare: purge the cache once, and set Browser Cache TTL to
