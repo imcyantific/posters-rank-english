@@ -133,6 +133,7 @@ there ignore the `.env` values for those.
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
 | `PILL_SIZE` | `0.8` | Pill size: `1` = big (old size), `0.7` = smaller. Range 0.5–1.5 |
+| `BADGE_PILL` | `off` | `on`: with `RANK_STYLE=badge`, the pill of a Top 10 title is the same red as the badge |
 | `PILL_STYLE` | `frosted` | `glass`: "liquid glass" pill, clear glass that bends the picture at its edges, with a bright rim. `color`: a solid tab in a colour picked from the artwork, with dark or white text. (at the top it gets a soft dark fade behind it, so it stands out on pale artwork) `frosted`: blurred, tinted glass |
 | `POSTER_INFO` | `on` | `off` hides the provider icon **and** genre/rating |
 | `POSTER_SKIP` | *(empty)* | TMDB images to never use, comma-separated, e.g. `/b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg` (also accepts the full image link). Clear the image cache after changing it |

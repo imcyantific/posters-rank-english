@@ -399,17 +399,24 @@ function hslToRgb(h, s, l) {
 
 // The status tab at the bottom (or top) centre: frosted glass, liquid glass or a solid
 // colour (pillColor, see pillColorFor).
+// Where the pill sits sideways for a given text: { x, w }.
+function pillBox(ctx, L, text) {
+  ctx.save();
+  ctx.font = `600 ${L.pillFont}px "Inter"`;
+  const textW = ctx.measureText(String(text)).width;
+  ctx.restore();
+  const w = Math.min(L.W - 60, Math.max(textW + 72 * PILL_SIZE(), 230 * PILL_SIZE()));
+  return { x: Math.round((L.W - w) / 2), w };
+}
+
 function drawTagPill(ctx, text, L, position = 'bottom', pillColor = null) {
   if (!text) return;
   const label = String(text);
 
+  const { x, w: pillW } = pillBox(ctx, L, label);
   ctx.save();
   ctx.font = `600 ${L.pillFont}px "Inter"`;
-  const textW = ctx.measureText(label).width;
-
-  const pillW = Math.min(L.W - 60, Math.max(textW + 72 * PILL_SIZE(), 230 * PILL_SIZE()));
   const pillH = L.pillH;
-  const x = Math.round((L.W - pillW) / 2);
   const atTop = position === 'top';
   const y = atTop ? 0 : L.H - pillH;
   const r = L.pillR;
@@ -630,11 +637,14 @@ function drawMetaChip(ctx, L, info, bottomY) {
 // RANK_STYLE=badge: a red rounded square in the top-left corner with a small "TOP" over
 // the rank number, like the Top 10 badge on streaming apps. A bit bigger than the
 // provider icon, which moves to the top-right corner.
-function drawRankBadge(ctx, rank, L, offsetY = 0) {
+const BADGE_RED = '#c81e24';
+function rankBadgeBox(L) {
   const icon = L.providerSize * BADGE_ICON_SCALE;
-  const w = Math.round(icon * 1.2);
-  const h = Math.round(icon * 1.32);
-  const x = L.rankX + 10;
+  return { x: L.rankX + 10, y: L.providerTop, w: Math.round(icon * 1.2), h: Math.round(icon * 1.32) };
+}
+
+function drawRankBadge(ctx, rank, L, offsetY = 0) {
+  const { x, w, h } = rankBadgeBox(L);
   const y = L.providerTop + offsetY;
   ctx.save();
   ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
@@ -746,18 +756,18 @@ function drawTopFade(ctx, L) {
 // Scores badge in the top-right corner: [IMDb] 7.5  [TMDB] 7.4 ... on a dark rounded
 // badge, level with the provider icon in the top-left. The badge keeps it readable on
 // bright artwork (there's no dark fade at the top).
-// besideIcon = the provider icon is in the top-right corner (Top 10 badge style), so the
-// scores sit just left of it.
-function drawRatingBadge(ctx, L, ratings, offsetY = 0, besideIcon = false) {
-  const iconS = besideIcon ? Math.round(L.providerSize * BADGE_ICON_SCALE) : L.providerSize;
+// underIcon = the provider icon is in the top-right corner (Top 10 badge style), so the
+// scores go right under it.
+function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
+  const iconS = Math.round(L.providerSize * BADGE_ICON_SCALE);
   const h = Math.round(L.providerSize * 0.8);
   const f = Math.round(h * 0.5);
   const padX = h * 0.28;
   ctx.save();
   ctx.font = `600 ${f}px "Inter"`;
   const w = padX + scoresRow(ctx, ratings, f, 0, 0, null) + padX;
-  const x = L.W - (L.rankX + 10) - w - (besideIcon ? iconS + 10 : 0); // same margin as the provider icon
-  const y = L.providerTop + (iconS - h) / 2 + offsetY;
+  const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
+  const y = (underIcon ? L.providerTop + iconS + 8 : L.providerTop + (L.providerSize - h) / 2) + offsetY;
   const glass = PILL_STYLE() === 'glass';
   if (glass) {
     // Same liquid glass as the pill, so the two match.
@@ -835,13 +845,21 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColo
 
   // Only portrait posters are narrow enough for a 2-digit rank to hit a top pill,
   // and only the rank (with the icon under it) needs to move.
-  const topOffset = pillTop && L.shiftForTopPill && (rank || badgeRank) ? L.pillH + 4 : 0;
+  let topOffset = pillTop && L.shiftForTopPill && rank ? L.pillH + 4 : 0;
+  let ratingOffset = pillTop && L.shiftForTopPill ? L.pillH + 4 : 0;
+  if (badgeRank) {
+    // The badge (and the icon and scores opposite it) only move down when the top pill is
+    // wide enough to reach them; a short pill in the middle leaves them where they are.
+    const box = rankBadgeBox(L);
+    const reaches = pillTop && pillBox(ctx, L, tag).x < box.x + box.w + 8;
+    topOffset = ratingOffset = reaches ? L.pillH + 4 : 0;
+    // BADGE_PILL=on: the pill of a Top 10 title is the same red as the badge.
+    if (opt('badgePill')) pillColor = { fill: BADGE_RED, text: 'rgba(255, 255, 255, 0.97)', dark: true };
+  }
   if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, !!badgeRank);
   if (rank) drawRank(ctx, rank, L, topOffset);
   if (badgeRank) drawRankBadge(ctx, badgeRank, L, topOffset);
-  if (topRating) {
-    drawRatingBadge(ctx, L, topRating, (pillTop && L.shiftForTopPill ? L.pillH + 4 : 0), !!(badgeRank && info?.providerImg));
-  }
+  if (topRating) drawRatingBadge(ctx, L, topRating, ratingOffset, !!(badgeRank && info?.providerImg));
   if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom', pillColor);   // last, so it blurs the finished image
 }
 
