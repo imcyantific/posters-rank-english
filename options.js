@@ -28,8 +28,9 @@ const SCHEMA = {
   pillPosition:  { key: 'pp', env: 'PILL_POSITION', def: 'bottom', parse: oneOf(['bottom', 'top'], 'bottom') },
   // 'same' = follow pillPosition
   landscapePill: { key: 'lp', env: 'LANDSCAPE_PILL_POSITION', def: 'same', parse: oneOf(['same', 'bottom', 'top'], 'same') },
-  // pill = "Top 1 Today" in the pill, hash = "#1 Today" in the pill, number = big number
-  rankStyle:     { key: 'rs', env: 'RANK_STYLE', def: 'pill', parse: oneOf(['pill', 'hash', 'number'], 'pill') },
+  // pill = "Top 1 Today" in the pill, hash = "#1 Today" in the pill, number = big number,
+  // badge = red "TOP 1" badge in the corner
+  rankStyle:     { key: 'rs', env: 'RANK_STYLE', def: 'pill', parse: oneOf(['pill', 'hash', 'number', 'badge'], 'pill') },
   showInfo:      { key: 'in', env: 'POSTER_INFO', def: true, parse: v => onOff(v, true) },
   showMeta:      { key: 'me', env: 'POSTER_META', def: true, parse: v => onOff(v, true) },
   showGenre:     { key: 'ge', env: 'POSTER_GENRE', def: true, parse: v => onOff(v, true) },

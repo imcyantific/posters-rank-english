@@ -541,10 +541,13 @@ function roundedRectPath(ctx, x, y, w, h, r) {
 
 // Streaming provider icon in the top-left: under the rank number when there is one,
 // otherwise in the corner. (The top-right is left free for the app's "watched" tick.)
-function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0) {
+// right = the Top 10 badge has the top-left corner, so the icon goes top-right, a
+// little bigger.
+const BADGE_ICON_SCALE = 1.15;
+function drawProviderIcon(ctx, L, img, hasRank, offsetY = 0, right = false) {
   if (!img) return;
-  const s = L.providerSize;
-  const x = L.rankX + 10;
+  const s = right ? Math.round(L.providerSize * BADGE_ICON_SCALE) : L.providerSize;
+  const x = right ? L.W - (L.rankX + 10) - s : L.rankX + 10;
   const y = (hasRank ? L.providerTopRanked : L.providerTop) + offsetY;
   ctx.save();
   ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
@@ -621,6 +624,48 @@ function drawMetaChip(ctx, L, info, bottomY) {
   if (genre) { boldText(genre, x); x += genreW; }
   if (dot) { boldText(dot, x, 'rgba(255, 255, 255, 0.7)'); x += dotW; }
   if (ratings.length) scoresRow(ctx, ratings, f, x, cy, (t, tx) => boldText(t, tx));
+  ctx.restore();
+}
+
+// RANK_STYLE=badge: a red rounded square in the top-left corner with a small "TOP" over
+// the rank number, like the Top 10 badge on streaming apps. A bit bigger than the
+// provider icon, which moves to the top-right corner.
+function drawRankBadge(ctx, rank, L, offsetY = 0) {
+  const icon = L.providerSize * BADGE_ICON_SCALE;
+  const w = Math.round(icon * 1.2);
+  const h = Math.round(icon * 1.32);
+  const x = L.rankX + 10;
+  const y = L.providerTop + offsetY;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 3;
+  const red = ctx.createLinearGradient(0, y, 0, y + h);
+  red.addColorStop(0, '#dc2626');
+  red.addColorStop(1, '#b3151b');
+  ctx.fillStyle = red;
+  roundedRectPath(ctx, x, y, w, h, w * 0.14);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `600 ${Math.round(w * 0.29)}px "Inter"`;
+  ctx.fillText('TOP', x + w / 2, y + h * 0.25);
+  // the number: as big as fits (a two-digit "10" is squeezed a little)
+  const label = String(rank);
+  let size = Math.round(w * 0.66);
+  ctx.font = `600 ${size}px "Inter"`;
+  const tw = ctx.measureText(label).width;
+  if (tw > w * 0.8) {
+    size = Math.floor(size * (w * 0.8) / tw);
+    ctx.font = `600 ${size}px "Inter"`;
+  }
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = size * 0.03; // a touch bolder than the font's own weight
+  ctx.fillText(label, x + w / 2, y + h * 0.65);
+  ctx.strokeText(label, x + w / 2, y + h * 0.65);
   ctx.restore();
 }
 
@@ -701,15 +746,18 @@ function drawTopFade(ctx, L) {
 // Scores badge in the top-right corner: [IMDb] 7.5  [TMDB] 7.4 ... on a dark rounded
 // badge, level with the provider icon in the top-left. The badge keeps it readable on
 // bright artwork (there's no dark fade at the top).
-function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
+// besideIcon = the provider icon is in the top-right corner (Top 10 badge style), so the
+// scores sit just left of it.
+function drawRatingBadge(ctx, L, ratings, offsetY = 0, besideIcon = false) {
+  const iconS = besideIcon ? Math.round(L.providerSize * BADGE_ICON_SCALE) : L.providerSize;
   const h = Math.round(L.providerSize * 0.8);
   const f = Math.round(h * 0.5);
   const padX = h * 0.28;
   ctx.save();
   ctx.font = `600 ${f}px "Inter"`;
   const w = padX + scoresRow(ctx, ratings, f, 0, 0, null) + padX;
-  const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
-  const y = L.providerTop + (L.providerSize - h) / 2 + offsetY;
+  const x = L.W - (L.rankX + 10) - w - (besideIcon ? iconS + 10 : 0); // same margin as the provider icon
+  const y = L.providerTop + (iconS - h) / 2 + offsetY;
   const glass = PILL_STYLE() === 'glass';
   if (glass) {
     // Same liquid glass as the pill, so the two match.
@@ -756,10 +804,16 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
 //             hash           -> the same, written "#1 Today"
 //                                (replacing the status text) and no big number is drawn.
 //             number         -> big rank number on the side + the normal status pill.
+//             badge          -> red "TOP 1" badge in the top-left corner + the normal
+//                                status pill; the provider icon moves to the top-right.
 const RANK_STYLE = () => opt('rankStyle');
 
 function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColor }) {
-  if (rank && RANK_STYLE() !== 'number') {
+  let badgeRank = null;
+  if (rank && RANK_STYLE() === 'badge') {
+    badgeRank = rank; // red "TOP n" badge in the corner; the pill keeps its normal text
+    rank = null;
+  } else if (rank && RANK_STYLE() !== 'number') {
     tag = RANK_STYLE() === 'hash' ? `#${rank} Today` : `Top ${rank} Today`;
     rank = null; // no side number; the provider icon moves up into the corner
   }
@@ -781,10 +835,13 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColo
 
   // Only portrait posters are narrow enough for a 2-digit rank to hit a top pill,
   // and only the rank (with the icon under it) needs to move.
-  const topOffset = pillTop && L.shiftForTopPill && rank ? L.pillH + 4 : 0;
-  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset);
+  const topOffset = pillTop && L.shiftForTopPill && (rank || badgeRank) ? L.pillH + 4 : 0;
+  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, !!badgeRank);
   if (rank) drawRank(ctx, rank, L, topOffset);
-  if (topRating) drawRatingBadge(ctx, L, topRating, (pillTop && L.shiftForTopPill ? L.pillH + 4 : 0));
+  if (badgeRank) drawRankBadge(ctx, badgeRank, L, topOffset);
+  if (topRating) {
+    drawRatingBadge(ctx, L, topRating, (pillTop && L.shiftForTopPill ? L.pillH + 4 : 0), !!(badgeRank && info?.providerImg));
+  }
   if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom', pillColor);   // last, so it blurs the finished image
 }
 
