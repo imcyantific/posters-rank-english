@@ -50,12 +50,31 @@ function memo(fn, ttlMs, maxSize = 500) {
   };
 }
 
-// "Best image first": highest rating, then most votes (a single 10/10 vote shouldn't
-// beat a 9.5 from 50 people), then the sharpest.
+// "Best image first", by a vote-weighted score: each image counts as if it also had
+// VOTE_WEIGHT extra votes of VOTE_START stars. An image with only a few votes therefore
+// stays near 3, while one with many votes keeps close to its real rating. So 6.7 stars
+// from 6 people no longer beats 6.2 stars from 81 people (The Odyssey).
+// VOTE_START is 3 because on TMDB one single "like" shows as 3.3 stars and no votes as
+// 0: a liked image then beats an unvoted one, and an unvoted one beats a disliked one.
+// Ties: more votes, then the sharpest.
+const VOTE_WEIGHT = 10;
+const VOTE_START = 3;
+const score = i => {
+  const v = i.vote_count || 0;
+  return (v * (i.vote_average || 0) + VOTE_WEIGHT * VOTE_START) / (v + VOTE_WEIGHT);
+};
 const byBest = (a, b) =>
-  (b.vote_average || 0) - (a.vote_average || 0) ||
+  score(b) - score(a) ||
   (b.vote_count || 0) - (a.vote_count || 0) ||
   (b.width || 0) - (a.width || 0);
+
+// TMDB's own main image for a title (the one ticked "Primary" on the website) goes
+// first in its group, ahead of the score order. Only reorders; never adds an image
+// that was filtered out (blurry or in POSTER_SKIP).
+function primaryFirst(list, primaryPath) {
+  const i = primaryPath ? list.findIndex(x => x.file_path === primaryPath) : -1;
+  return i > 0 ? [list[i], ...list.slice(0, i), ...list.slice(i + 1)] : list;
+}
 
 // POSTER_SKIP: TMDB images to never use, e.g. a foreign poster marked "No Language".
 // Comma-separated file names as TMDB shows them: /b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg
@@ -82,4 +101,4 @@ function rankLogos(logos) {
   ];
 }
 
-module.exports = { auth, tmdbGet, fetchImage, memo, byBest, sharpFirst, rankLogos };
+module.exports = { auth, tmdbGet, fetchImage, memo, byBest, primaryFirst, sharpFirst, rankLogos };
