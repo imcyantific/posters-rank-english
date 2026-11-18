@@ -50,7 +50,7 @@ if (CACHE_DIR) {
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 49;
+const IMG_VERSION = 50;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -491,7 +491,7 @@ app.get('/render-poster', async (req, res) => {
   }
   // The URL already contains rank, tag and version, so the image for a URL never changes:
   // keep it for a week, and serve it instantly while refreshing after that.
-  const buffer = await generatePoster(tmdbId, type, rank, tag, { images: details?.images, info: await posterInfo(details, type === 'tv' ? 'tv' : 'movie') });
+  const buffer = await generatePoster(tmdbId, type, rank, tag, { images: details?.images, primary: details?.poster_path, info: await posterInfo(details, type === 'tv' ? 'tv' : 'movie') });
   sendImage(res, buffer, 86400, WEEK, WEEK);
 });
 
@@ -506,7 +506,7 @@ app.get('/render-backdrop', async (req, res) => {
     console.error(`Details failed for backdrop ${tmdbId}:`, e.message);
   }
   // &logo=0 (sent by the "nologo" catalog art) leaves the title logo out of the image.
-  const bdOpts = { images: details?.images, info: await posterInfo(details, type === 'tv' ? 'tv' : 'movie'), noLogo: req.query.logo === '0' };
+  const bdOpts = { images: details?.images, primary: details?.backdrop_path, info: await posterInfo(details, type === 'tv' ? 'tv' : 'movie'), noLogo: req.query.logo === '0' };
   if (debug) {
     // Open the URL with &debug=1 to see the real error text instead of a blank 404
     const started = Date.now();
@@ -533,7 +533,7 @@ app.get('/poster/:id.jpg', async (req, res) => {
     // Full details are needed for Premiere / Finale / New Episode tags
     const details = await loadDetails(type, tmdbId);
     const tag = determineTag(details, type);
-    sendImage(res, await generatePoster(tmdbId, type, null, tag, { images: details.images, info: await posterInfo(details, type) }));
+    sendImage(res, await generatePoster(tmdbId, type, null, tag, { images: details.images, primary: details.poster_path, info: await posterInfo(details, type) }));
   } catch (err) {
     console.error('Poster Provider Error:', err.message);
     res.status(500).send('Server Error');
@@ -631,8 +631,8 @@ app.get('/top10/:shape/:id.jpg', async (req, res) => {
     // Reuse the images we already got with the details (one less TMDB call)
     const info = await posterInfo(details, type);
     const buffer = landscape
-      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug, images: details.images, info })
-      : await generatePoster(tmdbId, type, rank, tag, { images: details.images, info });
+      ? await generateBackdrop(tmdbId, type, rank, tag, { throwErrors: debug, images: details.images, primary: details.backdrop_path, info })
+      : await generatePoster(tmdbId, type, rank, tag, { images: details.images, primary: details.poster_path, info });
     if (!buffer) throw new Error('Image generation failed');
 
     if (debug) res.setHeader('X-Render-Ms', String(Date.now() - started));

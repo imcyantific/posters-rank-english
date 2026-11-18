@@ -1,6 +1,6 @@
 const { createCanvas, GlobalFonts, Path2D } = require('@napi-rs/canvas');
 const path = require('path');
-const { tmdbGet, fetchImage, byBest, sharpFirst, rankLogos } = require('./tmdb');
+const { tmdbGet, fetchImage, byBest, primaryFirst, sharpFirst, rankLogos } = require('./tmdb');
 const { opt } = require('./options');
 
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
@@ -54,17 +54,17 @@ const getImages = (type, tmdbId) => tmdbGet(`/${type}/${tmdbId}/images`, { inclu
 //   logo             -> only on ranked posters (Top 10); others keep the normal poster.
 //   original         -> never; always the normal poster.
 // Normal poster = best English one, then one in the original language (has the title),
-// then textless, then any.
+// then textless, then any. In each group TMDB's own main ("Primary") poster comes first.
 // `images` can be passed in when we already have them (saves a TMDB call).
 const POSTER_STYLE = () => opt('posterStyle');
 
-async function getPosterAssets(type, tmdbId, images, ranked = false) {
+async function getPosterAssets(type, tmdbId, images, ranked = false, primary = null) {
   const data = images || await getImages(type, tmdbId);
   // Skip blurry uploads within each language group (we draw at 780 px wide), so a smaller
   // English poster still beats a sharp foreign one (e.g. Under Siege: a 500 px English
   // poster vs. 900 px Spanish ones).
   const posters = data.posters || [];
-  const group = test => sharpFirst(posters.filter(test), 780).sort(byBest);
+  const group = test => primaryFirst(sharpFirst(posters.filter(test), 780).sort(byBest), primary);
   const english = group(p => p.iso_639_1 === 'en');
   const textless = group(p => p.iso_639_1 === null);
   // Posters in another language (e.g. the Japanese poster of an anime) still show the title.
@@ -93,12 +93,12 @@ function logoCandidates(logos) {
 // Backdrop: if the title has an English logo, use a textless backdrop and draw
 // the logo on top (looks like a landscape poster). Otherwise use a backdrop
 // that already has text, then any backdrop.
-async function getBackdropAssets(type, tmdbId, images) {
+async function getBackdropAssets(type, tmdbId, images, primary = null) {
   const data = images || await getImages(type, tmdbId);
   // Skip blurry uploads within each group (see getPosterAssets).
   const backdrops = data.backdrops || [];
   const logos = rankLogos(data.logos);
-  const group = test => sharpFirst(backdrops.filter(test), 1280).sort(byBest);
+  const group = test => primaryFirst(sharpFirst(backdrops.filter(test), 1280).sort(byBest), primary);
   const textless = group(b => b.iso_639_1 === null);
   const english = group(b => b.iso_639_1 === 'en');
   const any = group(() => true);
@@ -1032,7 +1032,7 @@ const toJpeg = canvas => canvas.encode('jpeg', JPEG_QUALITY);
 
 async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
-    const { posterPath, logoPaths } = await getPosterAssets(type, tmdbId, opts.images, !!rank);
+    const { posterPath, logoPaths } = await getPosterAssets(type, tmdbId, opts.images, !!rank, opts.primary);
     if (!posterPath) throw new Error('Poster not found');
     const info = opts.info || null;
     const [posterImg, logoImg, providerImg] = await Promise.all([
@@ -1058,7 +1058,7 @@ async function generatePoster(tmdbId, type = 'movie', rank = null, tag = null, o
 
 async function generateBackdrop(tmdbId, type = 'movie', rank = null, tag = null, opts = {}) {
   try {
-    const { backdropPath, logoPaths } = await getBackdropAssets(type, tmdbId, opts.images);
+    const { backdropPath, logoPaths } = await getBackdropAssets(type, tmdbId, opts.images, opts.primary);
     if (!backdropPath) throw new Error('Backdrop not found');
     const info = opts.info || null;
     const [backdropImg, logoImg, providerImg] = await Promise.all([
