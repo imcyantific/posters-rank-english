@@ -69,12 +69,19 @@ const byBest = (a, b) =>
   (b.vote_count || 0) - (a.vote_count || 0) ||
   (b.width || 0) - (a.width || 0);
 
-// TMDB's own main image for a title (the one ticked "Primary" on the website) goes
-// first in its group, ahead of the score order. Only reorders; never adds an image
-// that was filtered out (blurry or in POSTER_SKIP).
-function primaryFirst(list, primaryPath) {
-  const i = primaryPath ? list.findIndex(x => x.file_path === primaryPath) : -1;
-  return i > 0 ? [list[i], ...list.slice(0, i), ...list.slice(i + 1)] : list;
+// Order for posters and landscape art, best first:
+//   1. "Full size" images: at least twice the width we draw at (posters 1560 px,
+//      landscape 2560 px). Bigger uploads are usually the official artwork.
+//   2. Within that, TMDB's own main image (the one ticked "Primary" on the website).
+//   3. Then the vote-weighted score above.
+// So a full-size image beats a smaller one even if the smaller one has better votes or
+// is TMDB's primary. Blurry uploads and POSTER_SKIP files are already left out by
+// sharpFirst; this only reorders what is left.
+function bestOrder(list, minWidth, primaryPath) {
+  const full = i => ((i.width || 0) >= 2 * minWidth ? 1 : 0);
+  const isPrimary = i => (primaryPath && i.file_path === primaryPath ? 1 : 0);
+  return sharpFirst(list, minWidth).sort((a, b) =>
+    full(b) - full(a) || isPrimary(b) - isPrimary(a) || byBest(a, b));
 }
 
 // POSTER_SKIP: TMDB images to never use, e.g. a foreign poster marked "No Language".
@@ -102,4 +109,4 @@ function rankLogos(logos) {
   ];
 }
 
-module.exports = { auth, tmdbGet, fetchImage, memo, byBest, primaryFirst, sharpFirst, rankLogos };
+module.exports = { auth, tmdbGet, fetchImage, memo, byBest, bestOrder, sharpFirst, rankLogos };
