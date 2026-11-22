@@ -77,11 +77,13 @@ const byBest = (a, b) =>
 // So a full-size image beats a smaller one even if the smaller one has better votes or
 // is TMDB's primary. Blurry uploads and POSTER_SKIP files are already left out by
 // sharpFirst; this only reorders what is left.
-function bestOrder(list, minWidth, primaryPath) {
-  const full = i => ((i.width || 0) >= 2 * minWidth ? 1 : 0);
+const sizeFirst = (fullWidth, primaryPath = null) => {
+  const full = i => ((i.width || 0) >= fullWidth ? 1 : 0);
   const isPrimary = i => (primaryPath && i.file_path === primaryPath ? 1 : 0);
-  return sharpFirst(list, minWidth).sort((a, b) =>
-    full(b) - full(a) || isPrimary(b) - isPrimary(a) || byBest(a, b));
+  return (a, b) => full(b) - full(a) || isPrimary(b) - isPrimary(a) || byBest(a, b);
+};
+function bestOrder(list, minWidth, primaryPath) {
+  return sharpFirst(list, minWidth).sort(sizeFirst(2 * minWidth, primaryPath));
 }
 
 // POSTER_SKIP: TMDB images to never use, e.g. a foreign poster marked "No Language".
@@ -100,12 +102,16 @@ function sharpFirst(list, minWidth) {
 
 // Logo preference: English, then language-neutral, then any other (e.g. the original
 // Japanese logo for anime). SVGs are skipped because the canvas can't draw them.
+// Within each language, full-size logos first (at least 1920 px wide, twice the widest
+// we draw: 960 px on landscape art), then votes. TMDB has no "primary" logo.
+const LOGO_FULL_WIDTH = 1920;
 function rankLogos(logos) {
   const usable = sharpFirst((logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg')), 300);
+  const order = sizeFirst(LOGO_FULL_WIDTH);
   return [
-    ...usable.filter(l => l.iso_639_1 === 'en').sort(byBest),
-    ...usable.filter(l => !l.iso_639_1).sort(byBest),
-    ...usable.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(byBest)
+    ...usable.filter(l => l.iso_639_1 === 'en').sort(order),
+    ...usable.filter(l => !l.iso_639_1).sort(order),
+    ...usable.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(order)
   ];
 }
 
