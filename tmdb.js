@@ -52,13 +52,14 @@ function memo(fn, ttlMs, maxSize = 500) {
 
 // "Best image first", by a vote-weighted score: each image counts as if it also had
 // VOTE_WEIGHT extra votes of VOTE_START stars. An image with only a few votes therefore
-// stays near 3, while one with many votes keeps close to its real rating. So 6.7 stars
+// scores low, while one with many votes keeps close to its real rating. So 6.7 stars
 // from 6 people no longer beats 6.2 stars from 81 people (The Odyssey).
-// VOTE_START is 3 because on TMDB one single "like" shows as 3.3 stars and no votes as
-// 0: a liked image then beats an unvoted one, and an unvoted one beats a disliked one.
+// VOTE_START is 0, the same as TMDB shows for an image nobody has voted on, so any
+// voted image beats an unvoted one. (It was 3, which put a 2000 px Edens Zero poster
+// with 1.75 stars from 2 votes behind a smaller unvoted one.)
 // Ties: more votes, then the sharpest.
 const VOTE_WEIGHT = 10;
-const VOTE_START = 3;
+const VOTE_START = 0;
 const score = i => {
   const v = i.vote_count || 0;
   return (v * (i.vote_average || 0) + VOTE_WEIGHT * VOTE_START) / (v + VOTE_WEIGHT);
