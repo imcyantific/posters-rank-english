@@ -52,13 +52,14 @@ function memo(fn, ttlMs, maxSize = 500) {
 
 // "Best image first", by a vote-weighted score: each image counts as if it also had
 // VOTE_WEIGHT extra votes of VOTE_START stars. An image with only a few votes therefore
-// stays near 3, while one with many votes keeps close to its real rating. So 6.7 stars
+// scores low, while one with many votes keeps close to its real rating. So 6.7 stars
 // from 6 people no longer beats 6.2 stars from 81 people (The Odyssey).
-// VOTE_START is 3 because on TMDB one single "like" shows as 3.3 stars and no votes as
-// 0: a liked image then beats an unvoted one, and an unvoted one beats a disliked one.
+// VOTE_START is 0, the same as TMDB shows for an image nobody has voted on, so any
+// voted image beats an unvoted one. (It was 3, which put a 2000 px Edens Zero poster
+// with 1.75 stars from 2 votes behind a smaller unvoted one.)
 // Ties: more votes, then the sharpest.
 const VOTE_WEIGHT = 10;
-const VOTE_START = 3;
+const VOTE_START = 0;
 const score = i => {
   const v = i.vote_count || 0;
   return (v * (i.vote_average || 0) + VOTE_WEIGHT * VOTE_START) / (v + VOTE_WEIGHT);
@@ -68,12 +69,21 @@ const byBest = (a, b) =>
   (b.vote_count || 0) - (a.vote_count || 0) ||
   (b.width || 0) - (a.width || 0);
 
-// TMDB's own main image for a title (the one ticked "Primary" on the website) goes
-// first in its group, ahead of the score order. Only reorders; never adds an image
-// that was filtered out (blurry or in POSTER_SKIP).
-function primaryFirst(list, primaryPath) {
-  const i = primaryPath ? list.findIndex(x => x.file_path === primaryPath) : -1;
-  return i > 0 ? [list[i], ...list.slice(0, i), ...list.slice(i + 1)] : list;
+// Order for posters and landscape art, best first:
+//   1. "Full size" images: at least twice the width we draw at (posters 1560 px,
+//      landscape 2560 px). Bigger uploads are usually the official artwork.
+//   2. Within that, TMDB's own main image (the one ticked "Primary" on the website).
+//   3. Then the vote-weighted score above.
+// So a full-size image beats a smaller one even if the smaller one has better votes or
+// is TMDB's primary. Blurry uploads and POSTER_SKIP files are already left out by
+// sharpFirst; this only reorders what is left.
+const sizeFirst = (fullWidth, primaryPath = null) => {
+  const full = i => ((i.width || 0) >= fullWidth ? 1 : 0);
+  const isPrimary = i => (primaryPath && i.file_path === primaryPath ? 1 : 0);
+  return (a, b) => full(b) - full(a) || isPrimary(b) - isPrimary(a) || byBest(a, b);
+};
+function bestOrder(list, minWidth, primaryPath) {
+  return sharpFirst(list, minWidth).sort(sizeFirst(2 * minWidth, primaryPath));
 }
 
 // POSTER_SKIP: TMDB images to never use, e.g. a foreign poster marked "No Language".
@@ -92,13 +102,17 @@ function sharpFirst(list, minWidth) {
 
 // Logo preference: English, then language-neutral, then any other (e.g. the original
 // Japanese logo for anime). SVGs are skipped because the canvas can't draw them.
+// Within each language, full-size logos first (at least 1920 px wide, twice the widest
+// we draw: 960 px on landscape art), then votes. TMDB has no "primary" logo.
+const LOGO_FULL_WIDTH = 1920;
 function rankLogos(logos) {
   const usable = sharpFirst((logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg')), 300);
+  const order = sizeFirst(LOGO_FULL_WIDTH);
   return [
-    ...usable.filter(l => l.iso_639_1 === 'en').sort(byBest),
-    ...usable.filter(l => !l.iso_639_1).sort(byBest),
-    ...usable.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(byBest)
+    ...usable.filter(l => l.iso_639_1 === 'en').sort(order),
+    ...usable.filter(l => !l.iso_639_1).sort(order),
+    ...usable.filter(l => l.iso_639_1 && l.iso_639_1 !== 'en').sort(order)
   ];
 }
 
-module.exports = { auth, tmdbGet, fetchImage, memo, byBest, primaryFirst, sharpFirst, rankLogos };
+module.exports = { auth, tmdbGet, fetchImage, memo, byBest, bestOrder, sharpFirst, rankLogos };

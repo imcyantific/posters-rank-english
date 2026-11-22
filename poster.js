@@ -1,6 +1,6 @@
 const { createCanvas, GlobalFonts, Path2D } = require('@napi-rs/canvas');
 const path = require('path');
-const { tmdbGet, fetchImage, byBest, primaryFirst, sharpFirst, rankLogos } = require('./tmdb');
+const { tmdbGet, fetchImage, bestOrder, sharpFirst, rankLogos } = require('./tmdb');
 const { opt } = require('./options');
 
 // Two layouts: tall poster and wide backdrop. Everything else is shared.
@@ -54,7 +54,8 @@ const getImages = (type, tmdbId) => tmdbGet(`/${type}/${tmdbId}/images`, { inclu
 //   logo             -> only on ranked posters (Top 10); others keep the normal poster.
 //   original         -> never; always the normal poster.
 // Normal poster = best English one, then one in the original language (has the title),
-// then textless, then any. In each group TMDB's own main ("Primary") poster comes first.
+// then textless, then any. Within each group: full-size images first, then TMDB's own
+// main ("Primary") poster, then votes (see bestOrder in tmdb.js).
 // `images` can be passed in when we already have them (saves a TMDB call).
 const POSTER_STYLE = () => opt('posterStyle');
 
@@ -64,7 +65,7 @@ async function getPosterAssets(type, tmdbId, images, ranked = false, primary = n
   // English poster still beats a sharp foreign one (e.g. Under Siege: a 500 px English
   // poster vs. 900 px Spanish ones).
   const posters = data.posters || [];
-  const group = test => primaryFirst(sharpFirst(posters.filter(test), 780).sort(byBest), primary);
+  const group = test => bestOrder(posters.filter(test), 780, primary);
   const english = group(p => p.iso_639_1 === 'en');
   const textless = group(p => p.iso_639_1 === null);
   // Posters in another language (e.g. the Japanese poster of an anime) still show the title.
@@ -98,7 +99,7 @@ async function getBackdropAssets(type, tmdbId, images, primary = null) {
   // Skip blurry uploads within each group (see getPosterAssets).
   const backdrops = data.backdrops || [];
   const logos = rankLogos(data.logos);
-  const group = test => primaryFirst(sharpFirst(backdrops.filter(test), 1280).sort(byBest), primary);
+  const group = test => bestOrder(backdrops.filter(test), 1280, primary);
   const textless = group(b => b.iso_639_1 === null);
   const english = group(b => b.iso_639_1 === 'en');
   const any = group(() => true);
