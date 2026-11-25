@@ -971,27 +971,36 @@ const isColoured = (r, g, b) => Math.max(r, g, b) - Math.min(r, g, b) >= 60;
 //            counts as bright: Resident Evil's red logo scores 0.76, black scores 0.
 //   coloured (0-1) share of visible pixels that are coloured: 0 for a plain black logo,
 //            0.2 for Gachiakuta's black letters with a red outline.
+//   dark     (0-1) share of visible pixels that are black or dark grey: 0.4 for Modern
+//            Family's black "modern" + orange "family", 0 for its white "modern" version.
 function logoTone(img) {
   const w = 96;
   const h = Math.max(1, Math.round(img.height * w / img.width));
   const ctx = createCanvas(w, h).getContext('2d');
   ctx.drawImage(img, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
-  let weight = 0, bright = 0, coloured = 0;
+  let weight = 0, bright = 0, coloured = 0, dark = 0;
   for (let i = 0; i < px.length; i += 4) {
     const a = px[i + 3] / 255;
     if (a < 0.15) continue;
     const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
     bright += a * Math.max(r, g, b) / 255;
     if (isColoured(r, g, b)) coloured += a;
+    else if (Math.max(r, g, b) < 90) dark += a;
     weight += a;
   }
-  return weight ? { bright: bright / weight, coloured: coloured / weight } : { bright: 1, coloured: 0 };
+  return weight
+    ? { bright: bright / weight, coloured: coloured / weight, dark: dark / weight }
+    : { bright: 1, coloured: 0, dark: 0 };
 }
 const isDark = tone => tone.bright < 0.3;
+// A quarter or more of the logo is black/grey: that part disappears on the dark fade,
+// even when the rest is coloured (Modern Family's black "modern" next to orange "family").
+const DARK_PART = 0.25;
+const needsLight = tone => (isDark(tone) && tone.coloured < 0.05) || tone.dark >= DARK_PART;
 
-// A black/grey logo redrawn light: its black/grey parts are flipped to white/light grey,
-// keeping their shading.
+// A logo redrawn light: its black and dark grey parts are flipped to white/light grey,
+// keeping their shading. Colours, and parts that are already light, stay as they are.
 function lightenGreys(img) {
   const canvas = createCanvas(img.width, img.height);
   const ctx = canvas.getContext('2d');
@@ -1000,7 +1009,7 @@ function lightenGreys(img) {
   const px = data.data;
   for (let i = 0; i < px.length; i += 4) {
     const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
-    if (!isColoured(r, g, b)) {
+    if (!isColoured(r, g, b) && Math.max(r, g, b) < 128) {
       px[i] = 255 - r; px[i + 1] = 255 - g; px[i + 2] = 255 - b;
     }
   }
@@ -1008,20 +1017,21 @@ function lightenGreys(img) {
   return canvas;
 }
 
-// Logos sit on a dark gradient, so a plain black logo is almost invisible. The best logo
-// is kept as it is when it's bright (e.g. Resident Evil's red one) or when it's dark but
-// has its own colours (e.g. Gachiakuta's black letters with a red outline). Only a plain
-// black/grey logo is swapped for a light version of it when TMDB has one (e.g. Beast Race
-// has black and white logos), or else redrawn light (see lightenGreys).
+// Logos sit on a dark gradient, so black parts of a logo are almost invisible. The best
+// logo is kept as it is when it's bright or coloured all over (e.g. Resident Evil's red
+// one). When a big part of it is black/grey (see needsLight), it is swapped for a light
+// version of the same logo when TMDB has one (e.g. Modern Family's white "modern", Beast
+// Race's white logo), or else its black/grey parts are redrawn light and its colours kept
+// (see lightenGreys; Gachiakuta's black letters turn white, the red outline stays).
 async function loadLogo(logoPaths) {
   if (!logoPaths?.length) return null;
   const [first, ...rest] = logoPaths;
   const img = await loadOneLogo(first);
   if (!img) return null;
   const tone = logoTone(img);
-  if (!isDark(tone) || tone.coloured >= 0.05) return img;
+  if (!needsLight(tone)) return img;
   for (const other of await Promise.all(rest.map(loadOneLogo))) {
-    if (other && !isDark(logoTone(other))) return other;
+    if (other && !needsLight(logoTone(other))) return other;
   }
   return lightenGreys(img);
 }
