@@ -45,6 +45,8 @@ async function writeAtomic(file, data) {
 function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url, capFor = () => Infinity }) {
   const maxBytes = maxGB * 1e9;
   fs.mkdirSync(dir, { recursive: true });
+  // For the /status page: how requests were answered since the server started.
+  const stats = { hit: 0, stale: 0, miss: 0 };
   const refreshing = new Set();
   const files = (url, req) => {
     const key = crypto.createHash('sha1').update(keyFor(url, req)).digest('hex');
@@ -108,7 +110,18 @@ function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url, capFor = () =
   prune();
   setInterval(prune, 3600 * 1000).unref();
 
-  return async function diskCacheMiddleware(req, res, next) {
+  // Size of the saved pictures right now (for the /status page).
+  async function usage() {
+    let files = 0, bytes = 0;
+    for (const name of await fsp.readdir(dir).catch(() => [])) {
+      if (!name.endsWith('.img')) continue;
+      const st = await fsp.stat(path.join(dir, name)).catch(() => null);
+      if (st) { files++; bytes += st.size; }
+    }
+    return { files, bytes, maxBytes, ...stats };
+  }
+
+  async function diskCacheMiddleware(req, res, next) {
     if (req.method !== 'GET' || req.query.debug) return next();
     const url = req.originalUrl;
     const f = files(url, req);
@@ -127,6 +140,7 @@ function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url, capFor = () =
           // An old copy being refreshed in the background: let others keep it 5 minutes only
           res.setHeader('Cache-Control', withTimeLeft(meta.cacheControl, fresh ? (meta.expires - now) / 1000 : 300, cap));
           res.setHeader('X-Disk-Cache', fresh ? 'HIT' : 'STALE');
+          stats[fresh ? 'hit' : 'stale']++;
           return res.send(body);
         }
       } catch (e) { /* not cached yet */ }
@@ -147,12 +161,15 @@ function diskCache(dir, { selfUrl, maxGB = 2, keyFor = url => url, capFor = () =
           .then(() => writeAtomic(f.meta, JSON.stringify(meta)))
           .catch(e => console.error('Disk cache write failed:', e.message));
         res.setHeader('X-Disk-Cache', 'MISS');
+        stats.miss++;
         res.setHeader('Cache-Control', withTimeLeft(cacheControl, sMaxAge, cap));
       }
       return send(body);
     };
     next();
-  };
+  }
+  diskCacheMiddleware.usage = usage;
+  return diskCacheMiddleware;
 }
 
 module.exports = { diskCache };

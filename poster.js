@@ -687,17 +687,45 @@ function drawRankBadge(ctx, rank, L, offsetY = 0) {
   ctx.restore();
 }
 
+// RANK_NUMBER: soft (light grey, soft shadow), outline (white with a dark outline, easy to
+// read on bright skies) or red (the TOP badge red with a white outline).
 function drawRank(ctx, rank, L, offsetY = 0) {
+  const look = opt('rankNumber');
+  const text = `${rank}`;
+  const x = L.rankX, y = L.rankY + offsetY;
   ctx.save();
   ctx.font = `${L.rankFont}px "BebasNeue"`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-  ctx.shadowBlur = 15;
-  ctx.shadowOffsetX = 4;
-  ctx.shadowOffsetY = 4;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-  ctx.fillText(`${rank}`, L.rankX, L.rankY + offsetY);
+  if (look === 'outline' || look === 'red') {
+    // Outline drawn first (with the shadow), then the fill on top, so the outline shows
+    // only around the edge.
+    const red = look === 'red';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = L.rankFont * (red ? 0.05 : 0.06);
+    ctx.strokeStyle = red ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.8)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 3;
+    ctx.strokeText(text, x, y);
+    ctx.shadowColor = 'transparent';
+    if (red) {
+      const g = ctx.createLinearGradient(0, y, 0, y + L.rankFont * 0.75);
+      g.addColorStop(0, '#dc2626');
+      g.addColorStop(1, '#b3151b');
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = '#ffffff';
+    }
+    ctx.fillText(text, x, y);
+  } else {
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetX = 4;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fillText(text, x, y);
+  }
   ctx.restore();
 }
 
@@ -737,8 +765,10 @@ function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, L.W, L.H);
 
-  const maxW = L.W * L.logoMaxW;
-  const maxH = L.H * L.logoMaxH;
+  // LOGO_SIZE scales the space the logo may fill (never wider than the picture).
+  const size = opt('logoSize') || 1;
+  const maxW = Math.min(L.W * 0.94, L.W * L.logoMaxW * size);
+  const maxH = L.H * L.logoMaxH * size;
   const scale = Math.min(maxW / logoImg.width, maxH / logoImg.height);
   const w = logoImg.width * scale;
   const h = logoImg.height * scale;
@@ -764,9 +794,9 @@ function drawTopFade(ctx, L) {
 // Scores badge in the top-right corner: [IMDb] 7.5  [TMDB] 7.4 ... on a dark rounded
 // badge, level with the provider icon in the top-left. The badge keeps it readable on
 // bright artwork (there's no dark fade at the top).
-// (In the Top 10 badge style the icon moves under the red badge, so the scores always have
-// this corner to themselves.)
-function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
+// underIcon = the streaming icon is in the top-right corner too (PROVIDER_CORNER=right),
+// so the scores go just under it.
+function drawRatingBadge(ctx, L, ratings, offsetY = 0, underIcon = false) {
   const iconS = Math.round(L.providerSize * BADGE_ICON_SCALE);
   const h = Math.round(L.providerSize * 0.8);
   const f = Math.round(h * 0.5);
@@ -775,7 +805,7 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
   ctx.font = `600 ${f}px "Inter"`;
   const w = padX + scoresRow(ctx, ratings, f, 0, 0, null) + padX;
   const x = L.W - (L.rankX + 10) - w;               // same margin as the provider icon
-  const y = L.providerTop + (iconS - h) / 2 + offsetY;
+  const y = (underIcon ? L.providerTop + iconS + 8 : L.providerTop + (iconS - h) / 2) + offsetY;
   const glass = PILL_STYLE() === 'glass';
   if (!opt('ratingBg')) {
     // RATING_BG=off: no badge behind the scores, just a dark shadow to keep them readable.
@@ -899,16 +929,22 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColo
   }
   // PILL_STYLE=red: every pill is the same red as the TOP badge.
   if (PILL_STYLE() === 'red') pillColor = { fill: BADGE_RED, text: 'rgba(255, 255, 255, 0.97)', dark: true };
-  // Where the streaming icon goes. With a red TOP badge or a big number in the top-left,
-  // the icon goes in the top-right corner opposite it. When the scores are in the
-  // top-right corner, the icon goes under the badge or the number instead, so the scores
-  // have that corner to themselves. With no rank drawn, the icon is in the top-left corner.
-  const iconRight = !!(badgeRank || rank) && !topRating;
-  if (info && iconRight) drawProviderIcon(ctx, L, info.providerImg, false, badgeRank ? topOffset : ratingOffset, true);
-  else if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, false, !!badgeRank);
+  // Where the streaming icon goes (PROVIDER_CORNER):
+  //   auto  -> with a red TOP badge or a big number in the top-left, the icon goes in the
+  //            top-right corner opposite it; when the scores are top-right, it goes under
+  //            the badge or number instead. With no rank drawn: the top-left corner.
+  //   left  -> always top-left (under the badge or number when there is one).
+  //   right -> always top-right; scores in the top-right go just under the icon.
+  // In the top-right the icon moves down with the scores when a top pill is in the way
+  // (ratingOffset; with the red badge that is the same as the badge's own offset).
+  const corner = opt('iconCorner');
+  const iconRight = corner === 'right' || (corner === 'auto' && !!(badgeRank || rank) && !topRating);
+  const iconImg = info?.providerImg;
+  if (iconRight) drawProviderIcon(ctx, L, iconImg, false, ratingOffset, true);
+  else drawProviderIcon(ctx, L, iconImg, !!rank, topOffset, false, !!badgeRank);
   if (rank) drawRank(ctx, rank, L, topOffset);
   if (badgeRank) drawRankBadge(ctx, badgeRank, L, topOffset);
-  if (topRating) drawRatingBadge(ctx, L, topRating, ratingOffset);
+  if (topRating) drawRatingBadge(ctx, L, topRating, ratingOffset, !!(iconRight && iconImg));
   if (tag) drawTagPill(ctx, tag, L, pillTop ? 'top' : 'bottom', pillColor);   // last, so it blurs the finished image
 }
 

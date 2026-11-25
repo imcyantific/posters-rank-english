@@ -35,13 +35,22 @@ const SCHEMA = {
   // pill = "Top 1 Today" in the pill, hash = "#1 Today" in the pill, number = big number,
   // badge = red "TOP 1" badge in the corner
   rankStyle:     { key: 'rs', env: 'RANK_STYLE', def: 'pill', parse: oneOf(['pill', 'hash', 'number', 'badge'], 'pill') },
+  // Look of the big rank number (rankStyle "number"): soft = light grey with a soft
+  // shadow, outline = white with a dark outline, red = the TOP badge red, white outline.
+  rankNumber:    { key: 'rn', env: 'RANK_NUMBER', def: 'soft', parse: oneOf(['soft', 'outline', 'red'], 'soft') },
   // Red pill (same red as the badge) on Top 10 titles when rankStyle is "badge".
+  // No longer on the /configure page (the "Red" pill style covers most uses), but still
+  // honoured so older links and .env files keep their look.
   badgePill:     { key: 'bp', env: 'BADGE_PILL', def: false, parse: v => onOff(v, false) },
   // Streaming service icon (Netflix, Disney+ ...) and the genre/ratings line are switched
   // separately. showInfo is the old switch for both together: off still hides both, so
   // older links and .env files keep their look. The /configure page no longer shows it.
   showInfo:      { key: 'in', env: 'POSTER_INFO', def: true, parse: v => onOff(v, true) },
   showProvider:  { key: 'pv', env: 'POSTER_PROVIDER', def: true, parse: v => onOff(v, true) },
+  // Which top corner the streaming icon goes in: auto = opposite a big number or red TOP
+  // badge (under it when the scores are top-right), top-left on titles without a rank;
+  // left / right = always that corner.
+  iconCorner:    { key: 'ic', env: 'PROVIDER_CORNER', def: 'auto', parse: oneOf(['auto', 'left', 'right'], 'auto') },
   showMeta:      { key: 'me', env: 'POSTER_META', def: true, parse: v => onOff(v, true) },
   showGenre:     { key: 'ge', env: 'POSTER_GENRE', def: true, parse: v => onOff(v, true) },
   ratingPos:     { key: 'rp', env: 'RATING_POSITION', def: 'bottom',
@@ -56,6 +65,8 @@ const SCHEMA = {
                  } },
   // Movie Top 10 skips titles still only in cinemas (no digital release yet). Shows aren't affected.
   digitalOnly:   { key: 'do', env: 'DIGITAL_ONLY', def: false, parse: v => onOff(v, false) },
+  // Title logo size: 1 = normal, 0.6 = smaller, 1.4 = bigger.
+  logoSize:      { key: 'lz', env: 'LOGO_SIZE', def: 1, parse: v => Math.min(1.4, Math.max(0.6, Number(v) || 1)) },
   metaChip:      { key: 'mc', env: 'META_CHIP', def: false, parse: v => onOff(v, false) },
   region:        { key: 're', env: 'PROVIDER_REGION', def: 'NZ',
                    parse: v => (/^[a-z]{2}$/i.test(String(v ?? '')) ? String(v).toUpperCase() : 'NZ') }

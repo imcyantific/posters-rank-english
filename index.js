@@ -7,7 +7,7 @@ const path = require('path');
 const { tmdbGet, memo, rankLogos } = require('./tmdb');
 const { generatePoster, generateBackdrop } = require('./poster');
 const { determineTag } = require('./tags');
-const { getExtRatings, hasRatingsKey } = require('./ratings');
+const { getExtRatings, hasRatingsKey, ratingsStatus } = require('./ratings');
 const { SCHEMA, BUILT_IN, opt, prefix, configMiddleware } = require('./options');
 
 const app = express();
@@ -19,6 +19,7 @@ app.use(configMiddleware);
 // Self-hosting (e.g. an Oracle VPS with Docker): CACHE_DIR turns on a disk cache for
 // the image routes, doing the job Vercel's CDN does on Vercel.
 const CACHE_DIR = process.env.CACHE_DIR || '';
+let imageCache = null; // the disk cache, when on (its usage() feeds the /status page)
 if (CACHE_DIR) {
   const { diskCache } = require('./diskcache');
   const selfUrl = () => `http://127.0.0.1:${process.env.PORT || 3000}`;
@@ -37,14 +38,15 @@ if (CACHE_DIR) {
     try { req.top10 = await top10Request(req); } catch (e) { /* the route reports the error */ }
     next();
   });
-  app.use(['/render-poster', '/render-backdrop', '/poster', '/top10'], diskCache(path.join(CACHE_DIR, 'images'), {
+  imageCache = diskCache(path.join(CACHE_DIR, 'images'), {
     selfUrl,
     maxGB: Math.max(0.1, Number(process.env.CACHE_MAX_GB) || 2),
     keyFor: (url, req) => (url.includes('/top10/')
       ? `${listSalt()}${req.top10?.rank ? `rank${req.top10.rank}|` : ''}${url}`
       : url),
     capFor: req => (req.top10?.wantRank ? secondsUntilMidnight() : Infinity)
-  }));
+  });
+  app.use(['/render-poster', '/render-backdrop', '/poster', '/top10'], imageCache);
 }
 
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
@@ -680,6 +682,9 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
+// The last warm-up of each type on this server (for the /status page).
+const lastWarm = {};
+
 app.get('/warm', async (req, res) => {
   // Vercel sends "Authorization: Bearer <CRON_SECRET>" when CRON_SECRET is set
   const secret = process.env.CRON_SECRET;
@@ -719,6 +724,7 @@ app.get('/warm', async (req, res) => {
       }
     });
 
+    lastWarm[type] = { at: Date.now(), titles: metas.length, images: results.length, ok: results.filter(r => r.status === 200).length, ms: Date.now() - started };
     res.setHeader('Cache-Control', 'no-store');
     res.json({
       type,
@@ -729,9 +735,111 @@ app.get('/warm', async (req, res) => {
       results
     });
   } catch (err) {
+    lastWarm[type] = { at: Date.now(), error: err.message };
     res.setHeader('Cache-Control', 'no-store');
     res.status(500).json({ error: err.message });
   }
+});
+
+// ---------- /status: a plain page showing how the addon is doing ----------
+// Today's Top 10 (for this link's settings), the IMDb/RT score lookups (MDBList), the
+// saved pictures and the last warm-up. Nothing secret is shown (no keys). Numbers that
+// count "since the server started" are for this server only; on Vercel each instance
+// has its own.
+const STARTED = Date.now();
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const when = t => new Date(t).toLocaleString('en-NZ', { timeZone: RANK_TZ, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const mb = b => `${(b / 1e6).toFixed(b < 1e8 ? 1 : 0)} MB`;
+
+app.get('/status', async (req, res) => {
+  const rows = list => list.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('');
+  const card = (title, body) => `<section><h2>${esc(title)}</h2>${body}</section>`;
+
+  // Today's Top 10
+  const [movies, shows] = await Promise.all([getDailyTop10('movie').catch(() => null), getDailyTop10('tv').catch(() => null)]);
+  const ol = items => (items
+    ? `<ol>${items.map(i => `<li>${esc(i.title || i.name)}</li>`).join('')}</ol>`
+    : '<p class="bad">Couldn’t load it from TMDB right now.</p>');
+  const top10 = card('Today’s Top 10', `<p class="muted">Day ${esc(dayKey())}. A new list starts at midnight (${esc(RANK_TZ)}).${DIGITAL_ONLY() ? ' Movies only in cinemas are skipped.' : ''}</p>
+    <div class="cols"><div><h3>Movies</h3>${ol(movies)}</div><div><h3>Shows</h3>${ol(shows)}</div></div>`);
+
+  // IMDb / Rotten Tomatoes (MDBList)
+  const r = ratingsStatus();
+  const left = r.remaining !== null
+    ? `${r.remaining}${r.limit !== null ? ` of ${r.limit}` : ''} (as MDBList last said)`
+    : '<span class="muted">MDBList hasn’t said yet</span>';
+  const scores = card('IMDb & Rotten Tomatoes scores (MDBList)', r.hasKey
+    ? `<table>${rows([
+        ['Now', Date.now() < r.pausedUntil
+          ? `<span class="bad">Paused until ${esc(when(r.pausedUntil))}</span> (daily limit or key problem); posters use the scores already saved`
+          : '<span class="good">Working</span>'],
+        ['Lookups left today', left],
+        ['Lookups since the server started', `${r.lookups}${r.failed ? ` (${r.failed} failed)` : ''}`],
+        ['Titles with saved scores', `${r.saved} (each kept ${r.keepDays} days)`],
+        ['Last problem', r.lastError ? `${esc(r.lastError)} <span class="muted">(${esc(when(r.lastErrorAt))})</span>` : '<span class="muted">none</span>']
+      ])}</table>
+      <p class="muted">A title with no IMDb score may simply not have one yet (new shows), or MDBList doesn’t know it.</p>`
+    : '<p>No <code>MDBLIST_API_KEY</code> on the server, so only TMDB scores are shown.</p>');
+
+  // Saved pictures
+  let pictures;
+  if (imageCache) {
+    const u = await imageCache.usage();
+    const served = u.hit + u.stale + u.miss;
+    pictures = card('Saved pictures (disk cache)', `<table>${rows([
+      ['Pictures saved', `${u.files} (${mb(u.bytes)} of the ${mb(u.maxBytes)} limit)`],
+      ['Since the server started', served
+        ? `${served} asked for: ${u.hit} straight from disk, ${u.stale} from disk while a fresh copy was drawn, ${u.miss} newly drawn`
+        : '<span class="muted">nothing asked for yet</span>']
+    ])}</table>`);
+  } else {
+    pictures = card('Saved pictures', `<p>No <code>CACHE_DIR</code> here${process.env.VERCEL ? ': Vercel’s CDN keeps the pictures' : ', so pictures aren’t saved between requests'}.</p>`);
+  }
+
+  // Warm-up
+  const warmAt = process.env.VERCEL ? 'Vercel cron (see vercel.json)' : (process.env.WARM_AT === 'off' ? 'off' : `${esc(process.env.WARM_AT || '00:10')} every day (${esc(RANK_TZ)})`);
+  const warmRow = type => {
+    const w = lastWarm[type];
+    if (!w) return '<span class="muted">not since the server started</span>';
+    return w.error
+      ? `<span class="bad">failed</span> ${esc(when(w.at))}: ${esc(w.error)}`
+      : w.images
+        ? `${esc(when(w.at))}: ${w.ok} of ${w.images} pictures drawn for ${w.titles} titles in ${(w.ms / 1000).toFixed(0)} s`
+        : `${esc(when(w.at))}: nothing to draw for ${w.titles} titles (plain catalog art and no WARM_CUSTOM_URL)`;
+  };
+  const warm = card('Daily warm-up', `<table>${rows([
+    ['Runs', warmAt],
+    ['Last for movies', warmRow('movie')],
+    ['Last for shows', warmRow('series')],
+    ['Also draws your Custom URL', process.env.WARM_CUSTOM_URL ? 'yes (WARM_CUSTOM_URL is set)' : '<span class="muted">no (WARM_CUSTOM_URL not set)</span>']
+  ])}</table>`);
+
+  const server = card('Server', `<table>${rows([
+    ['Running since', esc(when(STARTED))],
+    ['Picture version', `${IMG_VERSION} <span class="muted">(IMG_VERSION)</span>`],
+    ['Settings on this page', prefix() ? 'from this link’s settings code' : 'the server’s .env']
+  ])}</table>`);
+
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Addon status</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0b10; --panel:#16161d; --line:#2a2a35; --text:#ececf1; --muted:#9a9aa8; --good:#4ade80; --bad:#f87171; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width:860px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { margin:0 0 4px; font-size:26px; } h2 { margin:0 0 10px; font-size:17px; } h3 { margin:0 0 6px; font-size:15px; color:var(--muted); }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; margin-top:14px; }
+  table { width:100%; border-collapse:collapse; } th, td { text-align:left; vertical-align:top; padding:6px 0; border-top:1px solid var(--line); }
+  tr:first-child th, tr:first-child td { border-top:0; } th { width:40%; padding-right:12px; font-weight:500; color:var(--muted); }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:12px; } ol { margin:0; padding-left:22px; }
+  .muted { color:var(--muted); } .good { color:var(--good); } .bad { color:var(--bad); }
+  code { background:#24242e; padding:1px 5px; border-radius:5px; } a { color:#a5b4fc; }
+  @media (max-width:560px) { .cols { grid-template-columns:1fr; } th { width:auto; display:block; padding-bottom:0; } td { display:block; border-top:0; padding-top:2px; } }
+</style></head><body><div class="wrap">
+<h1>Addon status</h1>
+<p class="muted">Checked ${esc(when(Date.now()))}. Reload the page to update. <a href="${esc(prefix())}/configure">Back to settings</a></p>
+${top10}${scores}${pictures}${warm}${server}
+</div></body></html>`);
 });
 
 module.exports = app;
