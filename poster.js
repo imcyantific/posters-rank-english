@@ -848,13 +848,18 @@ function drawRatingBadge(ctx, L, ratings, offsetY = 0) {
 // RANK_STYLE: pill (default) -> the rank goes in the status pill as "Top 1 Today"
 //             hash           -> the same, written "#1 Today"
 //                                (replacing the status text) and no big number is drawn.
-//             number         -> big rank number on the side + the normal status pill.
+//             number         -> big rank number on the side + the normal status pill;
+//                                the provider icon moves to the top-right, or stays under
+//                                the number when the scores are top-right.
 //             badge          -> red "TOP 1" badge in the top-left corner + the normal
 //                                status pill; the provider icon moves to the top-right,
 //                                or under the badge when the scores are top-right.
+// STATUS_PILL=off: no status pill. Everything below the logo slides down into its space.
+// With "pill"/"hash" a Top 10 title still gets a pill, as it carries the rank.
 const RANK_STYLE = () => opt('rankStyle');
 
 function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColor }) {
+  if (!opt('statusPill')) tag = null; // a rank pill can still be added just below
   let badgeRank = null;
   if (rank && RANK_STYLE() === 'badge') {
     badgeRank = rank; // red "TOP n" badge in the corner; the pill keeps its normal text
@@ -894,11 +899,13 @@ function drawOverlays(ctx, L, { rank, tag, logoImg, info, pillPosition, pillColo
   }
   // PILL_STYLE=red: every pill is the same red as the TOP badge.
   if (PILL_STYLE() === 'red') pillColor = { fill: BADGE_RED, text: 'rgba(255, 255, 255, 0.97)', dark: true };
-  // Top 10 badge style: the icon normally goes top-right, opposite the badge. When the
-  // scores are in the top-right corner too, the icon goes under the badge instead, so
-  // the scores have that corner to themselves.
-  const iconUnderBadge = !!(badgeRank && topRating);
-  if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, !!badgeRank, iconUnderBadge);
+  // Where the streaming icon goes. With a red TOP badge or a big number in the top-left,
+  // the icon goes in the top-right corner opposite it. When the scores are in the
+  // top-right corner, the icon goes under the badge or the number instead, so the scores
+  // have that corner to themselves. With no rank drawn, the icon is in the top-left corner.
+  const iconRight = !!(badgeRank || rank) && !topRating;
+  if (info && iconRight) drawProviderIcon(ctx, L, info.providerImg, false, badgeRank ? topOffset : ratingOffset, true);
+  else if (info) drawProviderIcon(ctx, L, info.providerImg, !!rank, topOffset, false, !!badgeRank);
   if (rank) drawRank(ctx, rank, L, topOffset);
   if (badgeRank) drawRankBadge(ctx, badgeRank, L, topOffset);
   if (topRating) drawRatingBadge(ctx, L, topRating, ratingOffset);

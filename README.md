@@ -128,16 +128,18 @@ there ignore the `.env` values for those.
 ### Poster look
 | Variable | Default | Options |
 |---|---|---|
-| `RANK_STYLE` | `pill` | `pill`: Top 10 rank shown in the pill as **Top 1 Today** (no side number) · `hash`: the same, written **#1 Today** · `number`: big rank number on the side + normal status pill · `badge`: red **TOP 1** badge in the top-left corner + normal status pill; the streaming icon moves to the top-right, or under the red badge when `RATING_POSITION=top-right` (titles with no rank keep the icon top-left) |
+| `RANK_STYLE` | `pill` | `pill`: Top 10 rank shown in the pill as **Top 1 Today** (no side number) · `hash`: the same, written **#1 Today** · `number`: big rank number in the top-left + normal status pill · `badge`: red **TOP 1** badge in the top-left corner + normal status pill. With `number` and `badge` the streaming icon moves to the top-right, or under the number / red badge when `RATING_POSITION=top-right` (titles with no rank keep the icon top-left) |
 | `POSTER_STYLE` | `always` | `always`: textless poster + drawn title logo on every poster (if TMDB has no textless poster, the normal one is used; the genre/rating line is still drawn) · `logo`: only on ranked Top 10 posters · `original`: never, always the normal poster |
+| `STATUS_PILL` | `on` | `off`: no status pill (*Now Streaming*, *New Episode* …); the title logo and genre/rating line move down into its space. With `RANK_STYLE=pill` or `hash`, Top 10 titles still get a pill, because that's where their rank is written |
 | `PILL_POSITION` | `bottom` | `top` moves the status pill to the top of portrait posters |
 | `LANDSCAPE_PILL_POSITION` | same as `PILL_POSITION` | `top` / `bottom` for landscape images |
 | `PILL_SIZE` | `0.8` | Pill size: `1` = big (old size), `0.7` = smaller. Range 0.5–1.5 |
 | `BADGE_PILL` | `off` | `on`: with `RANK_STYLE=badge`, the pill of a Top 10 title is the same red as the badge |
 | `PILL_STYLE` | `frosted` | `glass`: "liquid glass" pill, clear glass that bends the picture at its edges, with a bright rim. `color`: a solid tab in a colour picked from the artwork, with dark or white text. (at the top it gets a soft dark fade behind it, so it stands out on pale artwork) `frosted`: blurred, tinted glass. `red`: a solid red tab on every title (the same red as `RANK_STYLE=badge`) |
-| `POSTER_INFO` | `on` | `off` hides the provider icon **and** genre/rating |
+| `POSTER_PROVIDER` | `on` | `off` hides the streaming service icon (the genre/rating line stays) |
+| `POSTER_INFO` | `on` | Old switch: `off` hides the streaming icon **and** the genre/rating line. Use `POSTER_PROVIDER` and `POSTER_META` instead |
 | `POSTER_SKIP` | *(empty)* | TMDB images to never use, comma-separated, e.g. `/b5Z2OHgLWYq84YaYeJTBdXILaIx.jpg` (also accepts the full image link). Clear the image cache after changing it |
-| `POSTER_META` | `on` | `off` hides only the genre/rating line (provider icon stays) |
+| `POSTER_META` | `on` | `off` hides the genre/rating line, wherever it is (the streaming icon stays) |
 | `POSTER_GENRE` | `on` | `off` hides the genre, so the line shows only the ratings |
 | `RATINGS` | `imdb,tmdb,rt` | Which scores to show, always in the order IMDb, TMDB, Rotten Tomatoes. A title without a score just leaves it out |
 | `MDBLIST_API_KEY` | *(none)* | Free key from [mdblist.com/preferences](https://mdblist.com/preferences/) (API Key). Needed for the IMDb and Rotten Tomatoes scores; without it only TMDB shows. Free plan: about 1000 lookups a day |

@@ -24,6 +24,9 @@ const SCHEMA = {
   posterStyle:   { key: 'ps', env: 'POSTER_STYLE', def: 'always', parse: oneOf(['always', 'logo', 'original'], 'always') },
   // color = a solid tab in a colour taken from the artwork,
   // red = a solid red tab on every title (same red as the TOP badge)
+  // off = no status pill (Now Streaming, New Episode ...). With rankStyle "pill" or "hash"
+  // a Top 10 title still gets a pill, because that's where its rank is written.
+  statusPill:    { key: 'st', env: 'STATUS_PILL', def: true, parse: v => onOff(v, true) },
   pillStyle:     { key: 'pl', env: 'PILL_STYLE', def: 'frosted', parse: oneOf(['frosted', 'glass', 'color', 'red'], 'frosted') },
   pillSize:      { key: 'pz', env: 'PILL_SIZE', def: 0.8, parse: v => Math.min(1.5, Math.max(0.5, Number(v) || 0.8)) },
   pillPosition:  { key: 'pp', env: 'PILL_POSITION', def: 'bottom', parse: oneOf(['bottom', 'top'], 'bottom') },
@@ -34,7 +37,11 @@ const SCHEMA = {
   rankStyle:     { key: 'rs', env: 'RANK_STYLE', def: 'pill', parse: oneOf(['pill', 'hash', 'number', 'badge'], 'pill') },
   // Red pill (same red as the badge) on Top 10 titles when rankStyle is "badge".
   badgePill:     { key: 'bp', env: 'BADGE_PILL', def: false, parse: v => onOff(v, false) },
+  // Streaming service icon (Netflix, Disney+ ...) and the genre/ratings line are switched
+  // separately. showInfo is the old switch for both together: off still hides both, so
+  // older links and .env files keep their look. The /configure page no longer shows it.
   showInfo:      { key: 'in', env: 'POSTER_INFO', def: true, parse: v => onOff(v, true) },
+  showProvider:  { key: 'pv', env: 'POSTER_PROVIDER', def: true, parse: v => onOff(v, true) },
   showMeta:      { key: 'me', env: 'POSTER_META', def: true, parse: v => onOff(v, true) },
   showGenre:     { key: 'ge', env: 'POSTER_GENRE', def: true, parse: v => onOff(v, true) },
   ratingPos:     { key: 'rp', env: 'RATING_POSITION', def: 'bottom',

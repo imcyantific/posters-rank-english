@@ -50,7 +50,7 @@ if (CACHE_DIR) {
 const HOST_URL = process.env.HOST_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // Bump this whenever you redesign the images, so apps fetch fresh copies.
-const IMG_VERSION = 54;
+const IMG_VERSION = 55;
 
 // true  = use the IMDb id (tt1234567) when TMDB knows it, like Cinemeta does.
 // false = always use tmdb:<id>.
@@ -254,12 +254,14 @@ const getDetails = memo(async (tmdbType, tmdbId) => {
 }, 30 * 60 * 1000);
 const loadDetails = (tmdbType, tmdbId) => getDetails(`${tmdbType}:${tmdbId}`, tmdbType, tmdbId);
 
-// ---------- Poster info stack (provider icon + genre + rating, top-left) ----------
-// POSTER_INFO=off hides it. PROVIDER_REGION picks whose streaming services to show
-// (e.g. NZ, US, AU); falls back to US, then any country TMDB has.
+// ---------- Poster info (streaming service icon + genre/rating line) ----------
+// POSTER_PROVIDER=off hides the streaming service icon; POSTER_META=off hides the genre +
+// rating line. Each works on its own. POSTER_INFO=off (the old switch) hides both.
+// PROVIDER_REGION picks whose streaming services to show (e.g. NZ, US, AU); falls back
+// to US, then any country TMDB has.
 const POSTER_INFO = () => opt('showInfo');
-// POSTER_META=off hides just the genre + rating line (the provider icon stays).
-const POSTER_META = () => opt('showMeta');
+const POSTER_PROVIDER = () => POSTER_INFO() && opt('showProvider');
+const POSTER_META = () => POSTER_INFO() && opt('showMeta');
 // POSTER_GENRE=off hides only the genre, leaving just the TMDB rating.
 const POSTER_GENRE = () => opt('showGenre');
 const PROVIDER_REGION = () => opt('region');
@@ -284,10 +286,10 @@ async function ratingList(details, tmdbType) {
 }
 
 async function posterInfo(details, tmdbType) {
-  if (!POSTER_INFO() || !details) return null;
+  if ((!POSTER_PROVIDER() && !POSTER_META()) || !details) return null;
   const regions = details['watch/providers']?.results || {};
   const region = regions[PROVIDER_REGION()] || regions.US || Object.values(regions)[0];
-  const provider = (region?.flatrate || [])
+  const provider = POSTER_PROVIDER() && (region?.flatrate || [])
     .slice()
     .sort((a, b) => (a.display_priority ?? 99) - (b.display_priority ?? 99))[0];
   const genre = POSTER_META() && POSTER_GENRE() ? details.genres?.[0]?.name || null : null;

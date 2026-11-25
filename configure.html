@@ -104,7 +104,7 @@
           <div class="spinner" aria-hidden="true"></div>
           <div class="preview-msg" id="pv-msg" hidden></div>
         </div>
-        <p class="help">Shown as a Top 10 title, with its rank in the pill. Each change draws a fresh image, so it takes a second or two.</p>
+        <p class="help" id="pv-note">Shown as a Top 10 title, with its rank in the pill. Each change draws a fresh image, so it takes a second or two.</p>
       </section>
     </div>
 
@@ -160,23 +160,29 @@
   var DATA = /*__DATA__*/null;
   if (!DATA) { document.body.innerHTML = '<p style="padding:16px">Open this page from your addon server (/configure).</p>'; return; }
   var state = Object.assign({}, DATA.options);
+  // The old single switch (icon + ratings together) is now two switches. An old link
+  // or .env with it off opens here with both new switches off, so nothing changes.
+  if (state.showInfo === false) { state.showProvider = false; state.showMeta = false; }
+  state.showInfo = true;
 
   // ---- option list (what the page shows) ----
   var GROUPS = {
     'g-pill': [
+      { name: 'statusPill', label: 'Status pill', type: 'toggle',
+        help: 'Off = no “Now Streaming”, “New Episode”… pill; the title logo and ratings move down into its space. With rank “Top 1 Today” or “#1 Today”, Top 10 titles still get a pill with their rank.' },
       { name: 'pillStyle', label: 'Style', type: 'seg', choices: [['frosted', 'Frosted'], ['glass', 'Liquid glass'], ['color', 'Colour'], ['red', 'Red']],
         help: 'Colour = a solid tab in a colour picked from the artwork. Red = a solid red tab on every title (the same red as the red TOP badge).' },
       { name: 'pillSize', label: 'Size', type: 'range', min: 0.5, max: 1.5, step: 0.05 },
       { name: 'pillPosition', label: 'Position on posters', type: 'seg', choices: [['bottom', 'Bottom'], ['top', 'Top']] },
       { name: 'landscapePill', label: 'Position on landscape', type: 'seg', choices: [['same', 'Same as posters'], ['bottom', 'Bottom'], ['top', 'Top']] },
       { name: 'rankStyle', label: 'Rank', type: 'seg', choices: [['pill', '“Top 1 Today”'], ['hash', '“#1 Today”'], ['number', 'Big number'], ['badge', 'Red TOP badge']],
-        help: 'Red TOP badge: a red badge in the top-left corner with the rank; the pill keeps its normal text (Now Streaming, Just Added…) and the streaming icon moves to the top-right (or under the red badge when ratings are in the top-right).' },
+        help: 'Big number and Red TOP badge: the rank goes in the top-left corner and the pill keeps its normal text (Now Streaming, Just Added…). The streaming icon moves to the top-right, or under the number / badge when ratings are in the top-right.' },
       { name: 'badgePill', label: 'Red pill on Top 10 titles', type: 'toggle',
         help: 'Only with “Red TOP badge”: the pill of a Top 10 title is the same red as the badge, while other titles keep the style chosen above (e.g. liquid glass). Not needed if the style is already “Red”.' }
     ],
     'g-info': [
-      { name: 'showInfo', label: 'Streaming service icon + ratings', type: 'toggle', help: 'Netflix / Disney+ … icon and the scores.' },
-      { name: 'showMeta', label: 'Ratings', type: 'toggle', needs: 'showInfo' },
+      { name: 'showProvider', label: 'Streaming service icon', type: 'toggle', help: 'Netflix / Disney+ … icon in a top corner.' },
+      { name: 'showMeta', label: 'Ratings', type: 'toggle', help: 'The scores, and the genre if switched on below.' },
       { name: 'ratings', label: 'Which scores', type: 'multi', needs: 'showMeta', choices: [['imdb', 'IMDb'], ['tmdb', 'TMDB'], ['rt', 'Rotten Tomatoes']],
         help: DATA.ratingsKey ? 'A score is left out when a title doesn’t have one yet.' : 'IMDb and Rotten Tomatoes need MDBLIST_API_KEY on the server; until then only TMDB shows.' },
       { name: 'ratingPos', label: 'Rating position', type: 'seg', choices: [['bottom', 'Under the title'], ['top-right', 'Top-right badge']], needs: 'showMeta' },
@@ -184,7 +190,7 @@
         help: 'Off = just the scores with a shadow, no badge. Only matters with “Top-right badge”.' },
       { name: 'showGenre', label: 'Genre', type: 'toggle', needs: 'showMeta', help: 'e.g. “Drama” next to the ratings, under the title.' },
       { name: 'metaChip', label: 'Dark chip behind genre + ratings', type: 'toggle', needs: 'showMeta' },
-      { name: 'region', label: 'Country', type: 'select', help: 'Whose streaming service icon to show.',
+      { name: 'region', label: 'Country', type: 'select', needs: 'showProvider', help: 'Whose streaming service icon to show.',
         choices: [['NZ', 'New Zealand'], ['AU', 'Australia'], ['US', 'United States'], ['GB', 'United Kingdom'], ['CA', 'Canada'], ['IE', 'Ireland'], ['IN', 'India'], ['PH', 'Philippines'], ['SG', 'Singapore'], ['MY', 'Malaysia'], ['ID', 'Indonesia'], ['ZA', 'South Africa'], ['DE', 'Germany'], ['FR', 'France'], ['ES', 'Spain'], ['IT', 'Italy'], ['NL', 'Netherlands'], ['BR', 'Brazil'], ['MX', 'Mexico'], ['JP', 'Japan'], ['KR', 'South Korea']] }
     ],
     'g-art': [
@@ -334,7 +340,17 @@
   titleSel.addEventListener('change', function () { refresh(); });
   ['o-ranks', 'o-v'].forEach(function (id) { document.getElementById(id).addEventListener('input', links); });
 
-  function refresh() { applyNeeds(); preview(links()); }
+  // The note under the preview says how the rank is shown with the chosen rank style.
+  var RANK_NOTE = {
+    pill: 'with its rank in the pill (“Top 1 Today”)', hash: 'with its rank in the pill (“#1 Today”)',
+    number: 'with its rank as a big number', badge: 'with the red TOP badge'
+  };
+  function note() {
+    setText('pv-note', 'Shown as a Top 10 title, ' + (RANK_NOTE[state.rankStyle] || RANK_NOTE.pill) +
+      '. Each change draws a fresh image, so it takes a second or two.');
+  }
+
+  function refresh() { applyNeeds(); note(); preview(links()); }
 
   // Today's Top 10 for the title list (with this page's settings, so "Skip movies only
   // in cinemas" changes which movies are listed). Keeps the chosen title when it's still there.
