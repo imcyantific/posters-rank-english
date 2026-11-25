@@ -22,6 +22,16 @@ const FILE = process.env.CACHE_DIR ? path.join(process.env.CACHE_DIR, 'ratings.j
 const cache = new Map();
 const inFlight = new Map();
 let pausedUntil = 0;
+// For the /status page: lookups since the server started, and what MDBList last said
+// about the daily allowance (only if it sends those headers).
+const stats = { lookups: 0, failed: 0, remaining: null, limit: null, lastError: null, lastErrorAt: 0 };
+const noteLimit = headers => {
+  const rem = Number(headers?.['x-ratelimit-remaining']);
+  const lim = Number(headers?.['x-ratelimit-limit']);
+  if (Number.isFinite(rem) && headers?.['x-ratelimit-remaining'] !== undefined) stats.remaining = rem;
+  if (Number.isFinite(lim) && headers?.['x-ratelimit-limit'] !== undefined) stats.limit = lim;
+};
+const noteError = msg => { stats.failed++; stats.lastError = msg; stats.lastErrorAt = Date.now(); };
 
 try {
   if (FILE && fs.existsSync(FILE)) {
@@ -60,13 +70,17 @@ function parse(data) {
 async function lookup(tmdbType, tmdbId, cacheKey) {
   const kind = tmdbType === 'tv' ? 'show' : 'movie';
   try {
-    const { data } = await axios.get(`${BASE}/tmdb/${kind}/${tmdbId}`, { params: { apikey: KEY }, timeout: 6000 });
+    stats.lookups++;
+    const { data, headers } = await axios.get(`${BASE}/tmdb/${kind}/${tmdbId}`, { params: { apikey: KEY }, timeout: 6000 });
+    noteLimit(headers);
     const out = { at: Date.now(), ...parse(data) };
     cache.set(cacheKey, out);
     saveSoon();
     return out;
   } catch (e) {
     const status = e.response?.status;
+    noteLimit(e.response?.headers);
+    if (status !== 404) noteError(status === 429 ? 'Daily limit reached' : status === 401 || status === 403 ? 'MDBList refused the key' : e.message);
     if (status === 429) {
       const reset = Number(e.response.headers?.['x-ratelimit-reset']) * 1000;
       pausedUntil = reset > Date.now() ? reset : Date.now() + 3600000;
@@ -100,4 +114,9 @@ async function getExtRatings(tmdbType, tmdbId) {
   return inFlight.get(cacheKey);
 }
 
-module.exports = { getExtRatings, hasRatingsKey: () => !!KEY };
+// Snapshot for the /status page (never includes the key itself).
+function ratingsStatus() {
+  return { hasKey: !!KEY, saved: cache.size, keepDays: KEEP_MS / DAY, pausedUntil, ...stats };
+}
+
+module.exports = { getExtRatings, hasRatingsKey: () => !!KEY, ratingsStatus };
