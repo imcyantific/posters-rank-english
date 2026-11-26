@@ -1014,33 +1014,61 @@ const isColoured = (r, g, b) => Math.max(r, g, b) - Math.min(r, g, b) >= 60;
 //            counts as bright: Resident Evil's red logo scores 0.76, black scores 0.
 //   coloured (0-1) share of visible pixels that are coloured: 0 for a plain black logo,
 //            0.2 for Gachiakuta's black letters with a red outline.
-//   dark     (0-1) share of visible pixels that are black or dark grey: 0.4 for Modern
-//            Family's black "modern" + orange "family", 0 for its white "modern" version.
+//   darkOpen (0-1) share of visible pixels that are black/dark grey AND have see-through
+//            background close by (within NEAR px on this 160 px wide copy). The dark
+//            picture shows through there, so those parts disappear. Black parts sitting
+//            on the logo's own light background don't count. Modern Family's black
+//            "modern" + orange "family": 0.44. Jujutsu Kaisen's black letters in a thin
+//            gold outline: 0.58. Demon Slayer's black letters on its own white circle:
+//            0.06, so it reads fine even though a third of it is black.
+const NEAR = 8;
 function logoTone(img) {
-  const w = 96;
+  const w = 160;
   const h = Math.max(1, Math.round(img.height * w / img.width));
   const ctx = createCanvas(w, h).getContext('2d');
   ctx.drawImage(img, 0, 0, w, h);
   const px = ctx.getImageData(0, 0, w, h).data;
-  let weight = 0, bright = 0, coloured = 0, dark = 0;
-  for (let i = 0; i < px.length; i += 4) {
-    const a = px[i + 3] / 255;
+  // "open" = within NEAR px (left/right, then up/down) of a see-through pixel or the edge
+  // of the picture: a quick spread of the see-through areas, row by row then column by column.
+  const clear = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) clear[i] = px[i * 4 + 3] < 38 ? 1 : 0;
+  const rows = new Uint8Array(w * h), open = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let hit = x < NEAR || x >= w - NEAR;
+      for (let d = -NEAR; d <= NEAR && !hit; d++) hit = clear[y * w + x + d] === 1;
+      rows[y * w + x] = hit ? 1 : 0;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let hit = y < NEAR || y >= h - NEAR;
+      for (let d = -NEAR; d <= NEAR && !hit; d++) hit = rows[(y + d) * w + x] === 1;
+      open[y * w + x] = hit ? 1 : 0;
+    }
+  }
+  let weight = 0, bright = 0, coloured = 0, darkOpen = 0;
+  for (let i = 0; i < w * h; i++) {
+    const a = px[i * 4 + 3] / 255;
     if (a < 0.15) continue;
-    const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
+    const [r, g, b] = [px[i * 4], px[i * 4 + 1], px[i * 4 + 2]];
     bright += a * Math.max(r, g, b) / 255;
     if (isColoured(r, g, b)) coloured += a;
-    else if (Math.max(r, g, b) < 90) dark += a;
+    else if (Math.max(r, g, b) < 90 && open[i]) darkOpen += a;
     weight += a;
   }
   return weight
-    ? { bright: bright / weight, coloured: coloured / weight, dark: dark / weight }
-    : { bright: 1, coloured: 0, dark: 0 };
+    ? { bright: bright / weight, coloured: coloured / weight, darkOpen: darkOpen / weight }
+    : { bright: 1, coloured: 0, darkOpen: 0 };
 }
 const isDark = tone => tone.bright < 0.3;
-// A quarter or more of the logo is black/grey: that part disappears on the dark fade,
-// even when the rest is coloured (Modern Family's black "modern" next to orange "family").
-const DARK_PART = 0.25;
-const needsLight = tone => (isDark(tone) && tone.coloured < 0.05) || tone.dark >= DARK_PART;
+// A plain black/grey logo, or one where a quarter or more is black/grey with the dark
+// picture showing right next to it: those parts disappear on the dark fade, even when the
+// rest is coloured (Modern Family's black "modern" next to orange "family"). Black parts
+// on the logo's own light background (Demon Slayer's letters on a white circle) stay
+// readable, so they don't count.
+const DARK_OPEN = 0.25;
+const needsLight = tone => (isDark(tone) && tone.coloured < 0.05) || tone.darkOpen >= DARK_OPEN;
 
 // A logo redrawn light: its black and dark grey parts are flipped to white/light grey,
 // keeping their shading. Colours, and parts that are already light, stay as they are.
