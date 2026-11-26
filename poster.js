@@ -740,6 +740,22 @@ function drawCover(ctx, img, L) {
 // Title logo, centred above the pill, on a soft dark gradient so it stays readable.
 // How bright the lower part of the artwork is (0-1), where the logo and text go.
 // Measured on the finished drawing, every 6th pixel is plenty.
+// How bright the picture is where the logo goes (after the dark fade): the average of
+// each pixel's brightest colour channel, so a strong red counts as bright, like in logoTone.
+function behindBrightness(ctx, L, b) {
+  const S = L.S || 1;
+  const x = Math.max(0, Math.round(b.x * S)), y = Math.max(0, Math.round(b.y * S));
+  const w = Math.max(1, Math.round(b.w * S)), h = Math.max(1, Math.round(b.h * S));
+  const px = ctx.getImageData(x, y, w, h).data;
+  let sum = 0, n = 0;
+  for (let i = 0; i < px.length; i += 4 * 7) { sum += Math.max(px[i], px[i + 1], px[i + 2]) / 255; n++; }
+  return n ? sum / n : 0;
+}
+// Below this, the picture behind the logo counts as dark. Measured after the fade:
+// Gachiakuta's red poster 0.40 (its black logo reads fine), Modern Family's black poker
+// table 0.00 and Jujutsu Kaisen's dark sky 0.25 (both get the light version).
+const LOGO_BG_DARK = 0.3;
+
 function bottomBrightness(ctx, L) {
   const w = Math.round(L.W * L.S);
   const y0 = Math.round(L.H * L.gradTop * L.S);
@@ -756,7 +772,7 @@ function bottomBrightness(ctx, L) {
 // Dark fade behind the logo. Bright artwork (e.g. A Dog's Perfect Christmas, a pale snowy
 // poster) gets a stronger, taller fade so a white logo still stands out; normal and dark
 // artwork keep the usual fade.
-function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
+function drawLogo(ctx, logo, L, hasTag, reserveBelow = 0) {
   const bright = Math.min(1, Math.max(0, (bottomBrightness(ctx, L) - 0.35) / 0.3));
   const grad = ctx.createLinearGradient(0, L.H * L.gradTop, 0, L.H);
   grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
@@ -769,11 +785,19 @@ function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
   const size = opt('logoSize') || 1;
   const maxW = Math.min(L.W * 0.94, L.W * L.logoMaxW * size);
   const maxH = L.H * L.logoMaxH * size;
-  const scale = Math.min(maxW / logoImg.width, maxH / logoImg.height);
-  const w = logoImg.width * scale;
-  const h = logoImg.height * scale;
   const bottom = L.H - (hasTag ? L.pillH : 0) - 28 - reserveBelow;
-  ctx.drawImage(logoImg, (L.W - w) / 2, bottom - h, w, h);
+  const box = im => {
+    const scale = Math.min(maxW / im.width, maxH / im.height);
+    const w = im.width * scale, h = im.height * scale;
+    return { x: (L.W - w) / 2, y: bottom - h, w, h };
+  };
+  let img = logo.img;
+  if (logo.light) {
+    // Black parts only disappear on a dark picture: use the light version only there.
+    if (behindBrightness(ctx, L, box(img)) < LOGO_BG_DARK) img = logo.light;
+  }
+  const b = box(img);
+  ctx.drawImage(img, b.x, b.y, b.w, b.h);
 }
 
 function drawTopFade(ctx, L) {
@@ -1062,8 +1086,8 @@ function logoTone(img) {
     : { bright: 1, coloured: 0, darkOpen: 0 };
 }
 const isDark = tone => tone.bright < 0.3;
-// A plain black/grey logo, or one where a quarter or more is black/grey with the dark
-// picture showing right next to it: those parts disappear on the dark fade, even when the
+// A plain black/grey logo, or one where a quarter or more is black/grey with the
+// picture showing right next to it: on a dark picture those parts disappear, even when the
 // rest is coloured (Modern Family's black "modern" next to orange "family"). Black parts
 // on the logo's own light background (Demon Slayer's letters on a white circle) stay
 // readable, so they don't count.
@@ -1094,17 +1118,20 @@ function lightenGreys(img) {
 // version of the same logo when TMDB has one (e.g. Modern Family's white "modern", Beast
 // Race's white logo), or else its black/grey parts are redrawn light and its colours kept
 // (see lightenGreys; Gachiakuta's black letters turn white, the red outline stays).
+// -> { img, light }: img = the best logo as it is; light = a version for dark pictures
+// when img has black parts that could disappear (else null). drawLogo picks one once it
+// can see the picture behind the logo, so black letters on a bright or coloured picture
+// (Gachiakuta's black logo on its red poster) stay as they are.
 async function loadLogo(logoPaths) {
   if (!logoPaths?.length) return null;
   const [first, ...rest] = logoPaths;
   const img = await loadOneLogo(first);
   if (!img) return null;
-  const tone = logoTone(img);
-  if (!needsLight(tone)) return img;
+  if (!needsLight(logoTone(img))) return { img, light: null };
   for (const other of await Promise.all(rest.map(loadOneLogo))) {
-    if (other && !needsLight(logoTone(other))) return other;
+    if (other && !needsLight(logoTone(other))) return { img, light: other };
   }
-  return lightenGreys(img);
+  return { img, light: lightenGreys(img) };
 }
 
 // Encode in the background (doesn't block other renders running at the same time).
