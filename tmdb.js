@@ -69,21 +69,21 @@ const byBest = (a, b) =>
   (b.vote_count || 0) - (a.vote_count || 0) ||
   (b.width || 0) - (a.width || 0);
 
-// Order for posters and landscape art, best first:
-//   1. "Full size" images: at least twice the width we draw at (posters 1560 px,
-//      landscape 2560 px). Bigger uploads are usually the official artwork.
-//   2. Within that, TMDB's own main image (the one ticked "Primary" on the website).
+// Order for posters, landscape art and logos, best first:
+//   1. The biggest image (most pixels): a 2000x3000 poster always comes before a
+//      1867x2800 one, whatever the votes.
+//   2. Among images of the same size, TMDB's own main image (the one ticked "Primary"
+//      on the website).
 //   3. Then the vote-weighted score above.
-// So a full-size image beats a smaller one even if the smaller one has better votes or
-// is TMDB's primary. Blurry uploads and POSTER_SKIP files are already left out by
-// sharpFirst; this only reorders what is left.
-const sizeFirst = (fullWidth, primaryPath = null) => {
-  const full = i => ((i.width || 0) >= fullWidth ? 1 : 0);
+// Blurry uploads and POSTER_SKIP files are already left out by sharpFirst; this only
+// reorders what is left.
+const pixels = i => (i.width || 0) * (i.height || 0);
+const sizeFirst = (primaryPath = null) => {
   const isPrimary = i => (primaryPath && i.file_path === primaryPath ? 1 : 0);
-  return (a, b) => full(b) - full(a) || isPrimary(b) - isPrimary(a) || byBest(a, b);
+  return (a, b) => pixels(b) - pixels(a) || isPrimary(b) - isPrimary(a) || byBest(a, b);
 };
 function bestOrder(list, minWidth, primaryPath) {
-  return sharpFirst(list, minWidth).sort(sizeFirst(2 * minWidth, primaryPath));
+  return sharpFirst(list, minWidth).sort(sizeFirst(primaryPath));
 }
 
 // POSTER_SKIP: TMDB images to never use, e.g. a foreign poster marked "No Language".
@@ -102,12 +102,10 @@ function sharpFirst(list, minWidth) {
 
 // Logo preference: English, then language-neutral, then any other (e.g. the original
 // Japanese logo for anime). SVGs are skipped because the canvas can't draw them.
-// Within each language, full-size logos first (at least 1920 px wide, twice the widest
-// we draw: 960 px on landscape art), then votes. TMDB has no "primary" logo.
-const LOGO_FULL_WIDTH = 1920;
+// Within each language, the biggest logo first, then votes. TMDB has no "primary" logo.
 function rankLogos(logos) {
   const usable = sharpFirst((logos || []).filter(l => l.file_path && !l.file_path.endsWith('.svg')), 300);
-  const order = sizeFirst(LOGO_FULL_WIDTH);
+  const order = sizeFirst();
   return [
     ...usable.filter(l => l.iso_639_1 === 'en').sort(order),
     ...usable.filter(l => !l.iso_639_1).sort(order),

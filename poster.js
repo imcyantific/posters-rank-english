@@ -84,8 +84,8 @@ async function getPosterAssets(type, tmdbId, images, ranked = false, primary = n
   return { posterPath: details.poster_path, logoPaths: [] };
 }
 
-// The best logo plus a few backups in the same language, in case the best one is too
-// dark to read on the dark gradient (see loadLogo).
+// The best logo plus a few backups in the same language, in case the best one fails to
+// download (see loadLogo).
 function logoCandidates(logos) {
   const lang = logos[0]?.iso_639_1 || null;
   return logos.filter(l => (l.iso_639_1 || null) === lang).slice(0, 4).map(l => l.file_path);
@@ -740,22 +740,6 @@ function drawCover(ctx, img, L) {
 // Title logo, centred above the pill, on a soft dark gradient so it stays readable.
 // How bright the lower part of the artwork is (0-1), where the logo and text go.
 // Measured on the finished drawing, every 6th pixel is plenty.
-// How bright the picture is where the logo goes (after the dark fade): the average of
-// each pixel's brightest colour channel, so a strong red counts as bright, like in logoTone.
-function behindBrightness(ctx, L, b) {
-  const S = L.S || 1;
-  const x = Math.max(0, Math.round(b.x * S)), y = Math.max(0, Math.round(b.y * S));
-  const w = Math.max(1, Math.round(b.w * S)), h = Math.max(1, Math.round(b.h * S));
-  const px = ctx.getImageData(x, y, w, h).data;
-  let sum = 0, n = 0;
-  for (let i = 0; i < px.length; i += 4 * 7) { sum += Math.max(px[i], px[i + 1], px[i + 2]) / 255; n++; }
-  return n ? sum / n : 0;
-}
-// Below this, the picture behind the logo counts as dark. Measured after the fade:
-// Gachiakuta's red poster 0.40 (its black logo reads fine), Modern Family's black poker
-// table 0.00 and Jujutsu Kaisen's dark sky 0.25 (both get the light version).
-const LOGO_BG_DARK = 0.3;
-
 function bottomBrightness(ctx, L) {
   const w = Math.round(L.W * L.S);
   const y0 = Math.round(L.H * L.gradTop * L.S);
@@ -772,7 +756,7 @@ function bottomBrightness(ctx, L) {
 // Dark fade behind the logo. Bright artwork (e.g. A Dog's Perfect Christmas, a pale snowy
 // poster) gets a stronger, taller fade so a white logo still stands out; normal and dark
 // artwork keep the usual fade.
-function drawLogo(ctx, logo, L, hasTag, reserveBelow = 0) {
+function drawLogo(ctx, logoImg, L, hasTag, reserveBelow = 0) {
   const bright = Math.min(1, Math.max(0, (bottomBrightness(ctx, L) - 0.35) / 0.3));
   const grad = ctx.createLinearGradient(0, L.H * L.gradTop, 0, L.H);
   grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
@@ -785,19 +769,11 @@ function drawLogo(ctx, logo, L, hasTag, reserveBelow = 0) {
   const size = opt('logoSize') || 1;
   const maxW = Math.min(L.W * 0.94, L.W * L.logoMaxW * size);
   const maxH = L.H * L.logoMaxH * size;
+  const scale = Math.min(maxW / logoImg.width, maxH / logoImg.height);
+  const w = logoImg.width * scale;
+  const h = logoImg.height * scale;
   const bottom = L.H - (hasTag ? L.pillH : 0) - 28 - reserveBelow;
-  const box = im => {
-    const scale = Math.min(maxW / im.width, maxH / im.height);
-    const w = im.width * scale, h = im.height * scale;
-    return { x: (L.W - w) / 2, y: bottom - h, w, h };
-  };
-  let img = logo.img;
-  if (logo.light) {
-    // Black parts only disappear on a dark picture: use the light version only there.
-    if (behindBrightness(ctx, L, box(img)) < LOGO_BG_DARK) img = logo.light;
-  }
-  const b = box(img);
-  ctx.drawImage(img, b.x, b.y, b.w, b.h);
+  ctx.drawImage(logoImg, (L.W - w) / 2, bottom - h, w, h);
 }
 
 function drawTopFade(ctx, L) {
@@ -1028,110 +1004,15 @@ function loadOneLogo(logoPath) {
   ).catch(e => { console.error('Logo load failed:', e.message); return null; });
 }
 
-// A pixel counts as "coloured" when its strongest and weakest channels differ a lot
-// (red, blue, ...); otherwise it's black, grey or white.
-const isColoured = (r, g, b) => Math.max(r, g, b) - Math.min(r, g, b) >= 60;
-
-// How the logo looks, measured on a small copy:
-//   bright   (0-1) average of each visible pixel's brightest colour channel. Using the
-//            brightest channel (not brightness as the eye sees it) means a strong red
-//            counts as bright: Resident Evil's red logo scores 0.76, black scores 0.
-//   coloured (0-1) share of visible pixels that are coloured: 0 for a plain black logo,
-//            0.2 for Gachiakuta's black letters with a red outline.
-//   darkOpen (0-1) share of visible pixels that are black/dark grey AND have see-through
-//            background close by (within NEAR px on this 160 px wide copy). The dark
-//            picture shows through there, so those parts disappear. Black parts sitting
-//            on the logo's own light background don't count. Modern Family's black
-//            "modern" + orange "family": 0.44. Jujutsu Kaisen's black letters in a thin
-//            gold outline: 0.58. Demon Slayer's black letters on its own white circle:
-//            0.06, so it reads fine even though a third of it is black.
-const NEAR = 8;
-function logoTone(img) {
-  const w = 160;
-  const h = Math.max(1, Math.round(img.height * w / img.width));
-  const ctx = createCanvas(w, h).getContext('2d');
-  ctx.drawImage(img, 0, 0, w, h);
-  const px = ctx.getImageData(0, 0, w, h).data;
-  // "open" = within NEAR px (left/right, then up/down) of a see-through pixel or the edge
-  // of the picture: a quick spread of the see-through areas, row by row then column by column.
-  const clear = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) clear[i] = px[i * 4 + 3] < 38 ? 1 : 0;
-  const rows = new Uint8Array(w * h), open = new Uint8Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let hit = x < NEAR || x >= w - NEAR;
-      for (let d = -NEAR; d <= NEAR && !hit; d++) hit = clear[y * w + x + d] === 1;
-      rows[y * w + x] = hit ? 1 : 0;
-    }
-  }
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let hit = y < NEAR || y >= h - NEAR;
-      for (let d = -NEAR; d <= NEAR && !hit; d++) hit = rows[(y + d) * w + x] === 1;
-      open[y * w + x] = hit ? 1 : 0;
-    }
-  }
-  let weight = 0, bright = 0, coloured = 0, darkOpen = 0;
-  for (let i = 0; i < w * h; i++) {
-    const a = px[i * 4 + 3] / 255;
-    if (a < 0.15) continue;
-    const [r, g, b] = [px[i * 4], px[i * 4 + 1], px[i * 4 + 2]];
-    bright += a * Math.max(r, g, b) / 255;
-    if (isColoured(r, g, b)) coloured += a;
-    else if (Math.max(r, g, b) < 90 && open[i]) darkOpen += a;
-    weight += a;
-  }
-  return weight
-    ? { bright: bright / weight, coloured: coloured / weight, darkOpen: darkOpen / weight }
-    : { bright: 1, coloured: 0, darkOpen: 0 };
-}
-const isDark = tone => tone.bright < 0.3;
-// A plain black/grey logo, or one where a quarter or more is black/grey with the
-// picture showing right next to it: on a dark picture those parts disappear, even when the
-// rest is coloured (Modern Family's black "modern" next to orange "family"). Black parts
-// on the logo's own light background (Demon Slayer's letters on a white circle) stay
-// readable, so they don't count.
-const DARK_OPEN = 0.25;
-const needsLight = tone => (isDark(tone) && tone.coloured < 0.05) || tone.darkOpen >= DARK_OPEN;
-
-// A logo redrawn light: its black and dark grey parts are flipped to white/light grey,
-// keeping their shading. Colours, and parts that are already light, stay as they are.
-function lightenGreys(img) {
-  const canvas = createCanvas(img.width, img.height);
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0);
-  const data = ctx.getImageData(0, 0, img.width, img.height);
-  const px = data.data;
-  for (let i = 0; i < px.length; i += 4) {
-    const [r, g, b] = [px[i], px[i + 1], px[i + 2]];
-    if (!isColoured(r, g, b) && Math.max(r, g, b) < 128) {
-      px[i] = 255 - r; px[i + 1] = 255 - g; px[i + 2] = 255 - b;
-    }
-  }
-  ctx.putImageData(data, 0, 0);
-  return canvas;
-}
-
-// Logos sit on a dark gradient, so black parts of a logo are almost invisible. The best
-// logo is kept as it is when it's bright or coloured all over (e.g. Resident Evil's red
-// one). When a big part of it is black/grey (see needsLight), it is swapped for a light
-// version of the same logo when TMDB has one (e.g. Modern Family's white "modern", Beast
-// Race's white logo), or else its black/grey parts are redrawn light and its colours kept
-// (see lightenGreys; Gachiakuta's black letters turn white, the red outline stays).
-// -> { img, light }: img = the best logo as it is; light = a version for dark pictures
-// when img has black parts that could disappear (else null). drawLogo picks one once it
-// can see the picture behind the logo, so black letters on a bright or coloured picture
-// (Gachiakuta's black logo on its red poster) stay as they are.
+// The logo is always drawn as it is on TMDB (its own colours, never changed). The first
+// one in logoPaths (the biggest, see rankLogos) is used; the next ones are only tried
+// when a download fails.
 async function loadLogo(logoPaths) {
-  if (!logoPaths?.length) return null;
-  const [first, ...rest] = logoPaths;
-  const img = await loadOneLogo(first);
-  if (!img) return null;
-  if (!needsLight(logoTone(img))) return { img, light: null };
-  for (const other of await Promise.all(rest.map(loadOneLogo))) {
-    if (other && !needsLight(logoTone(other))) return { img, light: other };
+  for (const logoPath of logoPaths || []) {
+    const img = await loadOneLogo(logoPath);
+    if (img) return img;
   }
-  return { img, light: lightenGreys(img) };
+  return null;
 }
 
 // Encode in the background (doesn't block other renders running at the same time).
